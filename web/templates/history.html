@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+  <h2>Recent Diagnosis Events</h2>
+  {% if recent_history %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Diagnosis</th>
+          <th>Summary</th>
+          <th>Severity</th>
+          <th>Scope</th>
+          <th>Affected Sessions</th>
+          <th>Affected Clients</th>
+          <th>State Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in recent_history %}
+        <tr class="history-row {{ event.severity_class }}">
+          <td>{{ event.timestamp }}</td>
+          <td>{{ event.diagnosis_label }}</td>
+          <td>{{ event.summary_label }}</td>
+          <td><span class="badge severity-{{ event.severity|default('info') }}">{{ event.severity|default("info") }}</span></td>
+          <td>{{ event.scope|default("unknown") }}</td>
+          <td>{{ event.buffering_sessions|default([])|join(", ") or "none" }}</td>
+          <td>{{ event.affected_clients|default([])|join(", ") or "none" }}</td>
+          <td>{{ event.state_change_label }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty">No recent history entries.</p>
+  {% endif %}
+</section>
+{% endblock %}

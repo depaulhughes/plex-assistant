@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+  <h2>Status</h2>
+  <div class="badges">
+    <span class="badge severity-{{ diagnosis_presentation.severity|default('info') }}">{{ diagnosis_presentation.severity|default("info") }}</span>
+    <span class="badge scope">{{ diagnosis_presentation.scope|default("unknown") }}</span>
+    <span class="badge confidence">{{ diagnosis_presentation.confidence|default("low") }}</span>
+  </div>
+  <p><strong>Primary diagnosis:</strong> {{ diagnosis_presentation.primary_diagnosis_label|default("unknown") }}</p>
+  {% if diagnosis_presentation.operator_contributing_factors %}
+  <p><strong>Contributing factors:</strong> {{ diagnosis_presentation.operator_contributing_factors|join(", ") }}</p>
+  {% endif %}
+</section>
+
+<section class="grid grid-2">
+  <article class="card">
+    <h2>Confirmed By Telemetry</h2>
+    {% if structured_diagnosis.buffering_confirmed %}
+    <p>Buffering is confirmed for: {{ structured_diagnosis.buffering_sessions|join(", ") }}</p>
+    {% else %}
+    <p>No active buffering is currently confirmed by telemetry.</p>
+    {% endif %}
+    <p><strong>State change:</strong> {{ state_change.change_type|default("unknown") }}</p>
+  </article>
+
+  <article class="card">
+    <h2>Ruled Out</h2>
+    {% if structured_diagnosis.ruled_out %}
+    <ul class="stack">
+      {% for item in structured_diagnosis.ruled_out %}
+      <li>{{ item.replace("_", " ") }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No ruled-out causes are currently listed.</p>
+    {% endif %}
+  </article>
+</section>
+
+<section class="grid grid-2">
+  <article class="card">
+    <h2>Best Next Checks</h2>
+    <ul class="stack">
+      {% for item in action_plan.next_checks|default([]) %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="card">
+    <h2>Recommended Actions</h2>
+    <ul class="stack">
+      {% for item in action_plan.recommended_actions|default([]) %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
+<section class="grid grid-2">
+  <article class="card">
+    <h2>Active Alerts</h2>
+    {% if alerts %}
+    <ul class="stack">
+      {% for alert in alerts %}
+      <li>
+        <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+        <strong>{{ alert.title }}</strong>
+        <div class="muted">{{ alert.message }}</div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No active alerts.</p>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>Recent Trend Summary</h2>
+    <p><strong>Events last 24h:</strong> {{ history_summary.events_last_24h|default(0) }}</p>
+    <p><strong>Warning or higher:</strong> {{ history_summary.warning_or_higher_last_24h|default(0) }}</p>
+    <p><strong>Top diagnosis:</strong> {{ history_summary.top_diagnosis_last_24h|default("none") }}</p>
+    <p><strong>Top affected client:</strong> {{ history_summary.top_affected_client_last_24h|default("none") }}</p>
+  </article>
+</section>
+
+{% include "sessions_partial.html" %}
+{% endblock %}

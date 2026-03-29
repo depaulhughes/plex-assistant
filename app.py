@@ -1,15 +1,30 @@
 import json
 import sys
 
+from actions import build_action_plan
+from alerts import evaluate_alerts, load_recent_alert_history, log_alerts
 from clients import (
     build_tautulli_session_map,
     get_plex_sessions,
     get_tautulli_activity,
     prom_query_scalar,
 )
-from diagnosis import build_structured_diagnosis, diagnose, diagnose_buffering
+from diagnosis import (
+    build_structured_diagnosis,
+    classify_issue_metadata,
+    diagnose,
+    diagnose_buffering,
+)
 from facts import derive_facts, get_recent_upload_analysis
+from history import (
+    build_issue_fingerprint,
+    classify_state_change,
+    load_recent_history,
+    log_diagnosis_event,
+    summarize_recent_history,
+)
 from llm import answer_with_llm
+from summaries import build_diagnosis_presentation, build_manager_summary
 
 
 def build_state() -> dict:
@@ -83,6 +98,40 @@ def build_state() -> dict:
     state["facts"] = derive_facts(state)
     state["diagnosis"] = diagnose(state)
     state["structured_diagnosis"] = build_structured_diagnosis(state)
+    state["issue_metadata"] = classify_issue_metadata(state, state["structured_diagnosis"])
+    state["action_plan"] = build_action_plan(state, state["structured_diagnosis"], state["issue_metadata"])
+    state["diagnosis_presentation"] = build_diagnosis_presentation(
+        state,
+        state["structured_diagnosis"],
+        state["issue_metadata"],
+        state["action_plan"],
+    )
+    state["issue_fingerprint"] = build_issue_fingerprint(state)
+
+    recent_history = load_recent_history()
+    state["history_summary"] = summarize_recent_history(recent_history)
+    state["state_change"] = classify_state_change(state, recent_history)
+
+    recent_alert_history = load_recent_alert_history()
+    state["alerts"] = evaluate_alerts(state, state["history_summary"], recent_alert_history)
+
+    state["manager_summary"] = build_manager_summary(
+        state,
+        state["structured_diagnosis"],
+        state["issue_metadata"],
+        state["action_plan"],
+        state["history_summary"],
+        state["state_change"],
+        state["diagnosis_presentation"],
+    )
+
+    logged_event = log_diagnosis_event(state, recent_history)
+    if logged_event is not None:
+        state["history"]["last_logged_event"] = logged_event
+
+    if state["alerts"]:
+        log_alerts(state["alerts"])
+
     return state
 
 
@@ -184,6 +233,22 @@ def answer_question(question: str, state: dict) -> str:
     return summarize(state)
 
 
+def answer_question_from_state(
+    question: str,
+    state: dict,
+    response_mode: str = "operator",
+    context_mode: str = "full",
+) -> str:
+    rule_based_answer = answer_question(question, state)
+    return answer_with_llm(
+        question,
+        state,
+        rule_based_answer,
+        response_mode=response_mode,
+        context_mode=context_mode,
+    )
+
+
 if __name__ == "__main__":
     state = build_state()
 
@@ -191,11 +256,21 @@ if __name__ == "__main__":
         args = sys.argv[1:]
 
         if args[0] == "--llm":
-            question = " ".join(args[1:]).strip()
+            response_mode = "operator"
+            filtered_args = []
+            for arg in args[1:]:
+                if arg == "--manager":
+                    response_mode = "manager"
+                elif arg == "--operator":
+                    response_mode = "operator"
+                else:
+                    filtered_args.append(arg)
+
+            question = " ".join(filtered_args).strip()
             if not question:
-                print("Usage: python app.py --llm \"your question here\"")
+                print("Usage: python app.py --llm [--manager|--operator] \"your question here\"")
             else:
-                print(answer_with_llm(question, state, answer_question(question, state)))
+                print(answer_question_from_state(question, state, response_mode=response_mode, context_mode="full"))
         else:
             question = " ".join(args).strip()
             print(answer_question(question, state))

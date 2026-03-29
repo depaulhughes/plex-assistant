@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ page_title }} | Plex Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}" />
+  </head>
+  <body data-auto-refresh-seconds="20">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Plex Assistant</h1>
+        <p>Local observability dashboard</p>
+      </div>
+      <nav class="nav">
+        <a href="/" class="{% if active_path == '/' %}active{% endif %}">Dashboard</a>
+        <a href="/operator" class="{% if active_path == '/operator' %}active{% endif %}">Operator</a>
+        <a href="/manager" class="{% if active_path == '/manager' %}active{% endif %}">Manager</a>
+        <a href="/history" class="{% if active_path == '/history' %}active{% endif %}">History</a>
+        <a href="/alerts" class="{% if active_path == '/alerts' %}active{% endif %}">Alerts</a>
+      </nav>
+      <div class="toolbar">
+        <button id="refresh-button" type="button">Refresh</button>
+        <span class="timestamp">Last updated: {{ generated_at_label }}</span>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      {% if not ok %}
+      <section class="card error-card">
+        <h2>State Build Failed</h2>
+        <p>The UI could not load the current Plex Assistant state.</p>
+        <pre>{{ error }}</pre>
+      </section>
+      {% else %}
+      {% block content %}{% endblock %}
+      {% endif %}
+    </main>
+
+    <script src="{{ url_for('static', path='app.js') }}"></script>
+  </body>
+</html>

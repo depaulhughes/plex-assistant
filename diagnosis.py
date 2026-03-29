@@ -362,3 +362,52 @@ def build_structured_diagnosis(state: dict) -> dict:
         "ruled_out": sorted(set(ruled_out)),
         "risk_factors": sorted(set(risk_factors)),
     }
+
+
+def classify_issue_metadata(state: dict, structured_diagnosis: dict) -> dict:
+    diagnosis = structured_diagnosis.get("most_likely_cause", "unknown")
+    confidence = structured_diagnosis.get("confidence", "low")
+    facts = state.get("facts", {})
+    plex = state.get("plex", {})
+
+    scope = "unknown"
+    severity = "info"
+    diagnosis_family = "unknown"
+
+    if diagnosis == "none_detected":
+        scope = "unknown"
+        severity = "info"
+        diagnosis_family = "healthy_or_risk_only"
+    elif diagnosis in {"client_network_path_sensitivity", "client_file_compatibility_issue"}:
+        scope = "client_specific"
+        severity = "warning"
+        diagnosis_family = "client_specific"
+    elif diagnosis == "network_throughput_issue":
+        scope = "system_wide" if facts.get("buffering_session_count", 0) > 1 else "session_specific"
+        severity = "critical" if facts.get("buffering_session_count", 0) > 1 else "warning"
+        diagnosis_family = "delivery"
+    elif diagnosis == "upload_saturation":
+        scope = "system_wide"
+        severity = "critical"
+        diagnosis_family = "capacity"
+    elif diagnosis == "transcoding":
+        scope = "system_wide" if plex.get("transcodes", 0) > 1 else "session_specific"
+        severity = "critical" if plex.get("transcodes", 0) > 1 else "warning"
+        diagnosis_family = "processing"
+    elif diagnosis == "client_or_network":
+        scope = "session_specific" if facts.get("session_specific_issue_likely") else "unknown"
+        severity = "warning" if structured_diagnosis.get("buffering_confirmed") else "info"
+        diagnosis_family = "client_or_network"
+
+    if structured_diagnosis.get("system_wide_issue_likely") and diagnosis != "none_detected":
+        scope = "service_wide" if severity == "critical" else "system_wide"
+
+    if facts.get("buffering_session_count", 0) == 0 and not structured_diagnosis.get("buffering_confirmed"):
+        severity = "info"
+
+    return {
+        "scope": scope,
+        "severity": severity,
+        "confidence": confidence,
+        "diagnosis_family": diagnosis_family,
+    }

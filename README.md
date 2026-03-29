@@ -50,5 +50,33 @@ pip install -r requirements.txt
 python app.py
 
 
+## Web UI
+
+The project also includes a local FastAPI web UI under [web/main.py](/Users/johnnyhughes/plex-assistant-v2/web/main.py).
+
+Install dependencies:
+
+pip install -r requirements.txt
+
+Run the web UI locally:
+
+uvicorn web.main:app --reload
+
+Available pages:
+
+- `/` dashboard
+- `/operator`
+- `/manager`
+- `/history`
+- `/alerts`
+
+Useful JSON endpoints:
+
+- `/api/state`
+- `/api/health`
+- `/api/history`
+- `/api/alerts`
+
+
 ## Notes
 - Built as part of a Plex observability + AI assistant project

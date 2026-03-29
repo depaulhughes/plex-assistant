@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="grid grid-4">
+  <article class="card health-card tone-{{ manager_summary.service_health_tone|default('healthy') }}">
+    <h2>Service Health</h2>
+    <p class="metric">{{ manager_summary.service_health|default("unknown") }}</p>
+    <div class="badges">
+      <span class="badge severity-{{ diagnosis_presentation.severity|default('info') }}">{{ diagnosis_presentation.severity|default("info") }}</span>
+      <span class="badge scope">{{ diagnosis_presentation.scope|default("unknown") }}</span>
+      <span class="badge confidence">{{ diagnosis_presentation.confidence|default("low") }}</span>
+    </div>
+  </article>
+
+  <article class="card">
+    <h2>Active Sessions</h2>
+    <p class="metric">{{ plex.active_sessions|default(0) }}</p>
+    <p>{{ plex.transcodes|default(0) }} transcode(s), {{ plex.direct_plays|default(0) }} direct play(s)</p>
+  </article>
+
+  <article class="card diagnosis-card">
+    <h2>Primary Diagnosis</h2>
+    <p class="metric diagnosis-title">{{ diagnosis_presentation.primary_diagnosis_label|default("unknown") }}</p>
+    {% if diagnosis_presentation.supporting_text %}
+    <p class="secondary-text">{{ diagnosis_presentation.supporting_text }}</p>
+    {% endif %}
+    {% if diagnosis_presentation.dashboard_contributing_factors %}
+    <div class="factor-chips">
+      {% for item in diagnosis_presentation.dashboard_contributing_factors %}
+      <span class="chip">{{ item }}</span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="secondary-text">No additional contributing factors are surfaced right now.</p>
+    {% endif %}
+  </article>
+
+  <article class="card action-card">
+    <h2>Primary Action</h2>
+    <p class="metric">{{ diagnosis_presentation.primary_action|default("No immediate action needed.") }}</p>
+  </article>
+</section>
+
+<section class="grid grid-2">
+  <article class="card ask-card">
+    <h2>Ask Plex Assistant</h2>
+    <p class="secondary-text">Ask about the current live system state. Responses are grounded in the latest telemetry snapshot.</p>
+    <form action="/ask" method="post" class="ask-form" id="ask-form">
+      <textarea name="question" rows="3" placeholder="Why is this buffering?">{{ ask_question|default("") }}</textarea>
+      <div class="ask-controls">
+        <div class="mode-toggle">
+          <label>
+            <input type="radio" name="ask_mode" value="operator" {% if ask_mode != "manager" %}checked{% endif %}>
+            Operator answer
+          </label>
+          <label>
+            <input type="radio" name="ask_mode" value="manager" {% if ask_mode == "manager" %}checked{% endif %}>
+            Manager answer
+          </label>
+        </div>
+        <button type="submit" class="primary-button" id="ask-submit-button">Ask</button>
+      </div>
+      <div class="ask-loading" id="ask-loading" aria-live="polite" hidden>Analyzing current system state...</div>
+      <div class="factor-chips quick-question-chips">
+        {% for item in quick_questions %}
+        <button type="button" class="chip quick-question" data-question="{{ item }}">{{ item }}</button>
+        {% endfor %}
+      </div>
+    </form>
+
+    {% if ask_answer %}
+    <div class="ask-response">
+      <div class="response-header">
+        <strong>Answer</strong>
+        <span class="muted">Answered at {{ ask_answered_at }}</span>
+      </div>
+      {% if ask_answer_source %}
+      <div class="muted ask-source-note">
+        {% if ask_answer_source == "cached" %}
+        Answered using a recent live snapshot.
+        {% else %}
+        Answered using freshly collected telemetry.
+        {% endif %}
+      </div>
+      {% endif %}
+      <pre class="response-text">{{ ask_answer }}</pre>
+    </div>
+    {% elif ask_error %}
+    <div class="ask-response ask-error">
+      <div class="response-header">
+        <strong>Unable to answer</strong>
+      </div>
+      <p>{{ ask_error }}</p>
+    </div>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>Manager Summary</h2>
+    <p><strong>Impact:</strong> {{ manager_summary.impact_summary|default("No summary available.") }}</p>
+    <p><strong>Diagnosis:</strong> {{ manager_summary.current_diagnosis_label|default(diagnosis_presentation.primary_diagnosis_label|default("unknown")) }}</p>
+    {% if manager_summary.contributing_summary %}
+    <p><strong>Contributing factors:</strong> {{ manager_summary.contributing_summary }}</p>
+    {% endif %}
+    <p><strong>Escalation:</strong> {% if manager_summary.escalation_needed %}Yes{% else %}No{% endif %}</p>
+    <p><strong>Trend:</strong> {{ manager_summary.trend_summary|default("No trend summary available.") }}</p>
+  </article>
+
+  <article class="card">
+    <h2>Active Alerts</h2>
+    {% if alerts %}
+    <ul class="stack">
+      {% for alert in alerts[:3] %}
+      <li>
+        <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+        <strong>{{ alert.title }}</strong>
+        <div class="muted">{{ alert.message }}</div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No active alerts.</p>
+    {% endif %}
+  </article>
+</section>
+
+{% include "sessions_partial.html" %}
+{% endblock %}
