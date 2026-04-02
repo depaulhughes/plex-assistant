@@ -1,5 +1,6 @@
 import os
 import warnings
+import logging
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -10,7 +11,9 @@ warnings.filterwarnings(
     message=".*urllib3 v2 only supports OpenSSL.*",
 )
 
-load_dotenv()
+logger = logging.getLogger("plex_assistant.config")
+
+DOTENV_LOADED = load_dotenv()
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -59,3 +62,10 @@ LOG_HEALTHY_SNAPSHOTS = _env_bool("LOG_HEALTHY_SNAPSHOTS", False)
 MIN_EVENT_LOG_INTERVAL_SECONDS = int(os.getenv("MIN_EVENT_LOG_INTERVAL_SECONDS", "300"))
 MIN_HEALTHY_LOG_INTERVAL_SECONDS = int(os.getenv("MIN_HEALTHY_LOG_INTERVAL_SECONDS", "1800"))
 ASK_STATE_CACHE_SECONDS = int(os.getenv("ASK_STATE_CACHE_SECONDS", "10"))
+
+logger.warning(
+    "Config loaded dotenv_loaded=%s PLEX_BASE_URL=%s TAUTULLI_BASE_URL=%s",
+    DOTENV_LOADED,
+    PLEX_BASE_URL,
+    TAUTULLI_BASE_URL,
+)

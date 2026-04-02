@@ -21,13 +21,13 @@
       <tbody>
         {% for event in recent_history %}
         <tr class="history-row {{ event.severity_class }}">
-          <td>{{ event.timestamp }}</td>
+          <td>{{ event.timestamp_label }}</td>
           <td>{{ event.diagnosis_label }}</td>
           <td>{{ event.summary_label }}</td>
-          <td><span class="badge severity-{{ event.severity|default('info') }}">{{ event.severity|default("info") }}</span></td>
-          <td>{{ event.scope|default("unknown") }}</td>
-          <td>{{ event.buffering_sessions|default([])|join(", ") or "none" }}</td>
-          <td>{{ event.affected_clients|default([])|join(", ") or "none" }}</td>
+          <td><span class="badge {{ event.severity_class }}">{{ event.severity_label }}</span></td>
+          <td>{{ event.scope_label }}</td>
+          <td>{{ event.sessions_label }}</td>
+          <td>{{ event.clients_label }}</td>
           <td>{{ event.state_change_label }}</td>
         </tr>
         {% endfor %}

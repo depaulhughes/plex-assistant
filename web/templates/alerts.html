@@ -4,15 +4,15 @@
 <section class="grid grid-2">
   <article class="card">
     <h2>Current Alerts</h2>
-    {% if alerts %}
+    {% if alerts_display %}
     <ul class="stack">
-      {% for alert in alerts %}
+      {% for alert in alerts_display %}
       <li>
-        <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+        <span class="badge {{ alert.severity_class }}">{{ alert.severity_label }}</span>
         <strong>{{ alert.title }}</strong>
         <div>{{ alert.message }}</div>
-        <div class="muted">Sessions: {{ alert.affected_sessions|default([])|join(", ") or "none" }}</div>
-        <div class="muted">Clients: {{ alert.affected_clients|default([])|join(", ") or "none" }}</div>
+        <div class="muted">Sessions: {{ alert.sessions_label }}</div>
+        <div class="muted">Clients: {{ alert.clients_label }}</div>
       </li>
       {% endfor %}
     </ul>
@@ -27,11 +27,11 @@
     <ul class="stack">
       {% for alert in recent_alert_history %}
       <li>
-        <span class="badge severity-{{ alert.severity|default('info') }}">{{ alert.severity|default("info") }}</span>
+        <span class="badge {{ alert.severity_class }}">{{ alert.severity_label }}</span>
         <strong>{{ alert.alert_type }}</strong>
         <div>{{ alert.title }}</div>
         <div class="muted">{{ alert.triggered_at }}</div>
-        <div class="muted">Cooldown key: {{ alert.cooldown_key|default("n/a") }}</div>
+        <div class="muted">Cooldown key: {{ alert.cooldown_label }}</div>
       </li>
       {% endfor %}
     </ul>

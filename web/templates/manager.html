@@ -2,32 +2,32 @@
 
 {% block content %}
 <section class="grid grid-3">
-  <article class="card health-card tone-{{ manager_summary.service_health_tone|default('healthy') }}">
+  <article class="card health-card tone-{{ manager_view.service_health_tone }}">
     <h2>Service Health</h2>
-    <p class="metric">{{ manager_summary.service_health|default("unknown") }}</p>
+    <p class="metric">{{ manager_view.service_health }}</p>
   </article>
   <article class="card">
     <h2>Severity</h2>
-    <p class="metric">{{ manager_summary.severity|default(diagnosis_presentation.severity|default("info")) }}</p>
+    <p class="metric">{{ manager_view.severity_label }}</p>
   </article>
   <article class="card">
     <h2>Scope</h2>
-    <p class="metric">{{ manager_summary.issue_scope|default(diagnosis_presentation.scope|default("unknown")) }}</p>
+    <p class="metric">{{ manager_view.scope_label }}</p>
   </article>
 </section>
 
 <section class="card">
   <h2>Current Situation</h2>
-  <p><strong>Impact:</strong> {{ manager_summary.impact_summary|default("No impact summary available.") }}</p>
-  <p><strong>Primary diagnosis:</strong> {{ manager_summary.current_diagnosis_label|default(diagnosis_presentation.primary_diagnosis_label|default("unknown")) }}</p>
-  {% if manager_summary.contributing_summary %}
-  <p><strong>Contributing factors:</strong> {{ manager_summary.contributing_summary }}</p>
+  <p><strong>Impact:</strong> {{ manager_view.impact_summary }}</p>
+  <p><strong>Primary diagnosis:</strong> {{ manager_view.diagnosis_label }}</p>
+  {% if manager_view.contributing_summary %}
+  <p><strong>Contributing factors:</strong> {{ manager_view.contributing_summary }}</p>
   {% endif %}
-  {% if manager_summary.insight %}
-  <p class="manager-insight"><strong>Insight:</strong> {{ manager_summary.insight }}</p>
+  {% if manager_view.insight %}
+  <p class="manager-insight"><strong>Insight:</strong> {{ manager_view.insight }}</p>
   {% endif %}
-  <p><strong>Recommended action:</strong> {{ manager_summary.recommended_action|default("No immediate action needed.") }}</p>
-  <p><strong>Escalation needed:</strong> {% if manager_summary.escalation_needed %}Yes{% else %}No{% endif %}</p>
-  <p><strong>Trend:</strong> {{ manager_summary.trend_summary|default("No trend summary available.") }}</p>
+  <p><strong>Recommended action:</strong> {{ manager_view.recommended_action }}</p>
+  <p><strong>Escalation needed:</strong> {{ manager_view.escalation_label }}</p>
+  <p><strong>Trend:</strong> {{ manager_view.trend_summary }}</p>
 </section>
 {% endblock %}

@@ -4,33 +4,29 @@
 <section class="card">
   <h2>Status</h2>
   <div class="badges">
-    <span class="badge severity-{{ diagnosis_presentation.severity|default('info') }}">{{ diagnosis_presentation.severity|default("info") }}</span>
-    <span class="badge scope">{{ diagnosis_presentation.scope|default("unknown") }}</span>
-    <span class="badge confidence">{{ diagnosis_presentation.confidence|default("low") }}</span>
+    <span class="badge {{ operator_view.severity_class }}">{{ operator_view.severity_label }}</span>
+    <span class="badge scope">{{ operator_view.scope_label }}</span>
+    <span class="badge confidence">{{ operator_view.confidence_label }}</span>
   </div>
-  <p><strong>Primary diagnosis:</strong> {{ diagnosis_presentation.primary_diagnosis_label|default("unknown") }}</p>
-  {% if diagnosis_presentation.operator_contributing_factors %}
-  <p><strong>Contributing factors:</strong> {{ diagnosis_presentation.operator_contributing_factors|join(", ") }}</p>
+  <p><strong>Primary diagnosis:</strong> {{ operator_view.diagnosis_label }}</p>
+  {% if operator_view.contributing_label %}
+  <p><strong>Contributing factors:</strong> {{ operator_view.contributing_label }}</p>
   {% endif %}
 </section>
 
 <section class="grid grid-2">
   <article class="card">
     <h2>Confirmed By Telemetry</h2>
-    {% if structured_diagnosis.buffering_confirmed %}
-    <p>Buffering is confirmed for: {{ structured_diagnosis.buffering_sessions|join(", ") }}</p>
-    {% else %}
-    <p>No active buffering is currently confirmed by telemetry.</p>
-    {% endif %}
-    <p><strong>State change:</strong> {{ state_change.change_type|default("unknown") }}</p>
+    <p>{{ operator_view.confirmed_text }}</p>
+    <p><strong>State change:</strong> {{ operator_view.state_change_label }}</p>
   </article>
 
   <article class="card">
     <h2>Ruled Out</h2>
-    {% if structured_diagnosis.ruled_out %}
+    {% if operator_view.ruled_out_labels %}
     <ul class="stack">
-      {% for item in structured_diagnosis.ruled_out %}
-      <li>{{ item.replace("_", " ") }}</li>
+      {% for item in operator_view.ruled_out_labels %}
+      <li>{{ item }}</li>
       {% endfor %}
     </ul>
     {% else %}
@@ -43,7 +39,7 @@
   <article class="card">
     <h2>Best Next Checks</h2>
     <ul class="stack">
-      {% for item in action_plan.next_checks|default([]) %}
+      {% for item in operator_view.next_checks %}
       <li>{{ item }}</li>
       {% endfor %}
     </ul>
@@ -52,7 +48,7 @@
   <article class="card">
     <h2>Recommended Actions</h2>
     <ul class="stack">
-      {% for item in action_plan.recommended_actions|default([]) %}
+      {% for item in operator_view.recommended_actions %}
       <li>{{ item }}</li>
       {% endfor %}
     </ul>
@@ -62,11 +58,11 @@
 <section class="grid grid-2">
   <article class="card">
     <h2>Active Alerts</h2>
-    {% if alerts %}
+    {% if alerts_display %}
     <ul class="stack">
-      {% for alert in alerts %}
+      {% for alert in alerts_display %}
       <li>
-        <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+        <span class="badge {{ alert.severity_class }}">{{ alert.severity_label }}</span>
         <strong>{{ alert.title }}</strong>
         <div class="muted">{{ alert.message }}</div>
       </li>
@@ -79,10 +75,10 @@
 
   <article class="card">
     <h2>Recent Trend Summary</h2>
-    <p><strong>Events last 24h:</strong> {{ history_summary.events_last_24h|default(0) }}</p>
-    <p><strong>Warning or higher:</strong> {{ history_summary.warning_or_higher_last_24h|default(0) }}</p>
-    <p><strong>Top diagnosis:</strong> {{ history_summary.top_diagnosis_last_24h|default("none") }}</p>
-    <p><strong>Top affected client:</strong> {{ history_summary.top_affected_client_last_24h|default("none") }}</p>
+    <p><strong>Events last 24h:</strong> {{ operator_view.events_last_24h }}</p>
+    <p><strong>Warning or higher:</strong> {{ operator_view.warning_or_higher_last_24h }}</p>
+    <p><strong>Top diagnosis:</strong> {{ operator_view.top_diagnosis_last_24h }}</p>
+    <p><strong>Top affected client:</strong> {{ operator_view.top_affected_client_last_24h }}</p>
   </article>
 </section>
 

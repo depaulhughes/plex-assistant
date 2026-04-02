@@ -17,13 +17,53 @@ from config import (
 )
 
 
+def _classify_request_exception(exc: Exception) -> str:
+    if isinstance(exc, requests.ConnectTimeout):
+        return "connect timeout"
+    if isinstance(exc, requests.ReadTimeout):
+        return "read timeout"
+    if isinstance(exc, requests.HTTPError):
+        status_code = getattr(exc.response, "status_code", "unknown")
+        return "http {}".format(status_code)
+    if isinstance(exc, requests.ConnectionError):
+        detail = str(exc).lower()
+        if (
+            "name or service not known" in detail
+            or "temporary failure in name resolution" in detail
+            or "nodename nor servname provided" in detail
+            or "failed to resolve" in detail
+        ):
+            return "dns failure"
+        if "connection refused" in detail:
+            return "connection refused"
+        return "connection error"
+    return exc.__class__.__name__.lower()
+
+
+def _request_get(service_name: str, url: str, params: dict = None, timeout: int = 10) -> requests.Response:
+    try:
+        response = requests.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        return response
+    except requests.RequestException as exc:
+        error_kind = _classify_request_exception(exc)
+        raise RuntimeError(
+            "{} request failed [{}] target={}: {}".format(
+                service_name,
+                error_kind,
+                url,
+                exc,
+            )
+        ) from exc
+
+
 def prom_query_scalar(query: str) -> float:
-    resp = requests.get(
+    resp = _request_get(
+        "Prometheus",
         f"{PROMETHEUS_BASE_URL}/api/v1/query",
         params={"query": query},
         timeout=10,
     )
-    resp.raise_for_status()
     data = resp.json()
     if data.get("status") != "success":
         raise RuntimeError(f"Prometheus query failed: {data}")
@@ -35,7 +75,8 @@ def prom_query_scalar(query: str) -> float:
 
 
 def prom_query_range(query: str, start: int, end: int, step: str = "5s") -> list[float]:
-    resp = requests.get(
+    resp = _request_get(
+        "Prometheus",
         f"{PROMETHEUS_BASE_URL}/api/v1/query_range",
         params={
             "query": query,
@@ -45,7 +86,6 @@ def prom_query_range(query: str, start: int, end: int, step: str = "5s") -> list
         },
         timeout=10,
     )
-    resp.raise_for_status()
     data = resp.json()
     if data.get("status") != "success":
         raise RuntimeError(f"Prometheus range query failed: {data}")
@@ -59,12 +99,12 @@ def prom_query_range(query: str, start: int, end: int, step: str = "5s") -> list
 
 
 def get_plex_sessions() -> list[dict]:
-    resp = requests.get(
+    resp = _request_get(
+        "Plex",
         f"{PLEX_BASE_URL}/status/sessions",
         params={"X-Plex-Token": PLEX_TOKEN},
         timeout=10,
     )
-    resp.raise_for_status()
 
     root = ET.fromstring(resp.text)
     sessions = []
@@ -103,12 +143,12 @@ def get_plex_sessions() -> list[dict]:
 
 
 def get_tautulli_activity() -> dict:
-    resp = requests.get(
+    resp = _request_get(
+        "Tautulli",
         f"{TAUTULLI_BASE_URL}/api/v2",
         params={"apikey": TAUTULLI_API_KEY, "cmd": "get_activity"},
         timeout=10,
     )
-    resp.raise_for_status()
     data = resp.json()
 
     if data.get("response", {}).get("result") != "success":
