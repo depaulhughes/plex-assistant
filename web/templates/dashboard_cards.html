@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="grid grid-4">
+  <article class="card health-card tone-{{ dashboard_view.service_health_tone }}">
+    <h2>Service Health</h2>
+    <p class="metric">{{ dashboard_view.service_health_label }}</p>
+    <div class="badges">
+      <span class="badge {{ dashboard_view.severity_class }}">{{ dashboard_view.severity_label }}</span>
+      <span class="badge scope">{{ dashboard_view.scope_label }}</span>
+      <span class="badge confidence">{{ dashboard_view.confidence_label }}</span>
+    </div>
+  </article>
+
+  <article class="card">
+    <h2>Active Sessions</h2>
+    <p class="metric">{{ dashboard_view.active_sessions_label }}</p>
+    <p>{{ dashboard_view.playback_summary }}</p>
+  </article>
+
+  <article class="card diagnosis-card">
+    <h2>Primary Diagnosis</h2>
+    <p class="metric diagnosis-title">{{ dashboard_view.diagnosis_label }}</p>
+    {% if dashboard_view.supporting_text %}
+    <p class="secondary-text">{{ dashboard_view.supporting_text }}</p>
+    {% endif %}
+    {% if dashboard_view.contributing_factors %}
+    <div class="factor-chips">
+      {% for item in dashboard_view.contributing_factors %}
+      <span class="chip">{{ item }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </article>
+
+  <article class="card action-card">
+    <h2>Primary Action</h2>
+    <p class="metric">{{ dashboard_view.primary_action }}</p>
+  </article>
+</section>
+{% endblock %}

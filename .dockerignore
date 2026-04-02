@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.pytest_cache
+.mypy_cache
+.coverage
+.env
+plex_assistant_history.jsonl
+plex_assistant_alerts.jsonl
+data

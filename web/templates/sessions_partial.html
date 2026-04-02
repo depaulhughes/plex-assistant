@@ -1,6 +1,6 @@
 <section class="card">
   <h2>Active Sessions</h2>
-  {% if sessions %}
+  {% if session_rows %}
   <div class="table-wrap">
     <table>
       <thead>
@@ -14,24 +14,20 @@
         </tr>
       </thead>
       <tbody>
-        {% for session in sessions %}
+        {% for session in session_rows %}
         <tr>
-          <td>{{ session.title }}{% if session.year %} ({{ session.year }}){% endif %}</td>
-          <td>{{ session.player_product or session.tautulli_product or "unknown" }}</td>
+          <td>{{ session.title_label }}</td>
+          <td>{{ session.client_label }}</td>
           <td>
-            {% if session.tautulli_state == "buffering" %}
+            {% if session.is_buffering %}
             <span class="badge severity-warning">buffering</span>
             {% else %}
-            {{ session.tautulli_state or session.player_state or "unknown" }}
+            {{ session.state_label }}
             {% endif %}
           </td>
-          <td>{{ session.decision or "unknown" }}</td>
-          <td>{{ session.bitrate_kbps or 0 }} kbps</td>
-          <td class="muted">
-            {{ session.container or "unknown" }} /
-            {{ session.audio_codec or "unknown" }} /
-            {{ session.subtitle_codec or "no subtitles" }}
-          </td>
+          <td>{{ session.decision_label }}</td>
+          <td>{{ session.bitrate_label }}</td>
+          <td class="muted">{{ session.traits_label }}</td>
         </tr>
         {% endfor %}
       </tbody>

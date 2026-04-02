@@ -396,11 +396,18 @@ def build_history_display_event(event: dict) -> dict:
     state_change = event.get("state_change") or {}
     diagnosis = event.get("diagnosis", "unknown")
     severity = event.get("severity", "info")
+    buffering_sessions = event.get("buffering_sessions") or []
+    affected_clients = event.get("affected_clients") or []
 
     return {
         **event,
+        "timestamp_label": str(event.get("timestamp", "")),
         "diagnosis_label": diagnosis_display_label(diagnosis),
         "summary_label": build_history_event_summary(event),
         "state_change_label": state_change_display_label(state_change.get("change_type", "no_material_change")),
+        "severity_label": str(severity),
         "severity_class": "severity-{}".format(severity),
+        "scope_label": str(event.get("scope", "unknown")),
+        "sessions_label": ", ".join(str(item) for item in buffering_sessions) or "none",
+        "clients_label": ", ".join(str(item) for item in affected_clients) or "none",
     }

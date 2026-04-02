@@ -29,7 +29,8 @@
       {% if not ok %}
       <section class="card error-card">
         <h2>State Build Failed</h2>
-        <p>The UI could not load the current Plex Assistant state.</p>
+        <p>The UI could not load the current Plex Assistant state from an upstream service.</p>
+        <p class="secondary-text">The error below should show the failed target and whether it was a DNS failure, connection refused, connect timeout, or read timeout.</p>
         <pre>{{ error }}</pre>
       </section>
       {% else %}

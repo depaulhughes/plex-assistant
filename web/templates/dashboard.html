@@ -2,31 +2,31 @@
 
 {% block content %}
 <section class="grid grid-4">
-  <article class="card health-card tone-{{ manager_summary.service_health_tone|default('healthy') }}">
+  <article class="card health-card tone-{{ dashboard_view.service_health_tone }}">
     <h2>Service Health</h2>
-    <p class="metric">{{ manager_summary.service_health|default("unknown") }}</p>
+    <p class="metric">{{ dashboard_view.service_health_label }}</p>
     <div class="badges">
-      <span class="badge severity-{{ diagnosis_presentation.severity|default('info') }}">{{ diagnosis_presentation.severity|default("info") }}</span>
-      <span class="badge scope">{{ diagnosis_presentation.scope|default("unknown") }}</span>
-      <span class="badge confidence">{{ diagnosis_presentation.confidence|default("low") }}</span>
+      <span class="badge {{ dashboard_view.severity_class }}">{{ dashboard_view.severity_label }}</span>
+      <span class="badge scope">{{ dashboard_view.scope_label }}</span>
+      <span class="badge confidence">{{ dashboard_view.confidence_label }}</span>
     </div>
   </article>
 
   <article class="card">
     <h2>Active Sessions</h2>
-    <p class="metric">{{ plex.active_sessions|default(0) }}</p>
-    <p>{{ plex.transcodes|default(0) }} transcode(s), {{ plex.direct_plays|default(0) }} direct play(s)</p>
+    <p class="metric">{{ dashboard_view.active_sessions_label }}</p>
+    <p>{{ dashboard_view.playback_summary }}</p>
   </article>
 
   <article class="card diagnosis-card">
     <h2>Primary Diagnosis</h2>
-    <p class="metric diagnosis-title">{{ diagnosis_presentation.primary_diagnosis_label|default("unknown") }}</p>
-    {% if diagnosis_presentation.supporting_text %}
-    <p class="secondary-text">{{ diagnosis_presentation.supporting_text }}</p>
+    <p class="metric diagnosis-title">{{ dashboard_view.diagnosis_label }}</p>
+    {% if dashboard_view.supporting_text %}
+    <p class="secondary-text">{{ dashboard_view.supporting_text }}</p>
     {% endif %}
-    {% if diagnosis_presentation.dashboard_contributing_factors %}
+    {% if dashboard_view.contributing_factors %}
     <div class="factor-chips">
-      {% for item in diagnosis_presentation.dashboard_contributing_factors %}
+      {% for item in dashboard_view.contributing_factors %}
       <span class="chip">{{ item }}</span>
       {% endfor %}
     </div>
@@ -37,7 +37,7 @@
 
   <article class="card action-card">
     <h2>Primary Action</h2>
-    <p class="metric">{{ diagnosis_presentation.primary_action|default("No immediate action needed.") }}</p>
+    <p class="metric">{{ dashboard_view.primary_action }}</p>
   </article>
 </section>
 
@@ -97,22 +97,22 @@
 
   <article class="card">
     <h2>Manager Summary</h2>
-    <p><strong>Impact:</strong> {{ manager_summary.impact_summary|default("No summary available.") }}</p>
-    <p><strong>Diagnosis:</strong> {{ manager_summary.current_diagnosis_label|default(diagnosis_presentation.primary_diagnosis_label|default("unknown")) }}</p>
-    {% if manager_summary.contributing_summary %}
-    <p><strong>Contributing factors:</strong> {{ manager_summary.contributing_summary }}</p>
+    <p><strong>Impact:</strong> {{ dashboard_view.manager_impact_summary }}</p>
+    <p><strong>Diagnosis:</strong> {{ dashboard_view.manager_diagnosis_label }}</p>
+    {% if dashboard_view.manager_contributing_summary %}
+    <p><strong>Contributing factors:</strong> {{ dashboard_view.manager_contributing_summary }}</p>
     {% endif %}
-    <p><strong>Escalation:</strong> {% if manager_summary.escalation_needed %}Yes{% else %}No{% endif %}</p>
-    <p><strong>Trend:</strong> {{ manager_summary.trend_summary|default("No trend summary available.") }}</p>
+    <p><strong>Escalation:</strong> {{ dashboard_view.manager_escalation_label }}</p>
+    <p><strong>Trend:</strong> {{ dashboard_view.manager_trend_summary }}</p>
   </article>
 
   <article class="card">
     <h2>Active Alerts</h2>
-    {% if alerts %}
+    {% if dashboard_view.alert_rows %}
     <ul class="stack">
-      {% for alert in alerts[:3] %}
+      {% for alert in dashboard_view.alert_rows %}
       <li>
-        <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+        <span class="badge {{ alert.severity_class }}">{{ alert.severity_label }}</span>
         <strong>{{ alert.title }}</strong>
         <div class="muted">{{ alert.message }}</div>
       </li>
