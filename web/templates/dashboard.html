@@ -1,128 +1,141 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="grid grid-4">
-  <article class="card health-card tone-{{ dashboard_view.service_health_tone }}">
-    <h2>Service Health</h2>
-    <p class="metric">{{ dashboard_view.service_health_label }}</p>
-    <div class="badges">
-      <span class="badge {{ dashboard_view.severity_class }}">{{ dashboard_view.severity_label }}</span>
-      <span class="badge scope">{{ dashboard_view.scope_label }}</span>
-      <span class="badge confidence">{{ dashboard_view.confidence_label }}</span>
-    </div>
-  </article>
-
-  <article class="card">
-    <h2>Active Sessions</h2>
-    <p class="metric">{{ dashboard_view.active_sessions_label }}</p>
-    <p>{{ dashboard_view.playback_summary }}</p>
-  </article>
-
-  <article class="card diagnosis-card">
-    <h2>Primary Diagnosis</h2>
-    <p class="metric diagnosis-title">{{ dashboard_view.diagnosis_label }}</p>
-    {% if dashboard_view.supporting_text %}
-    <p class="secondary-text">{{ dashboard_view.supporting_text }}</p>
-    {% endif %}
-    {% if dashboard_view.contributing_factors %}
-    <div class="factor-chips">
-      {% for item in dashboard_view.contributing_factors %}
-      <span class="chip">{{ item }}</span>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p class="secondary-text">No additional contributing factors are surfaced right now.</p>
-    {% endif %}
-  </article>
-
-  <article class="card action-card">
-    <h2>Primary Action</h2>
-    <p class="metric">{{ dashboard_view.primary_action }}</p>
-  </article>
-</section>
-
-<section class="grid grid-2">
-  <article class="card ask-card">
-    <h2>Ask Plex Assistant</h2>
-    <p class="secondary-text">Ask about the current live system state. Responses are grounded in the latest telemetry snapshot.</p>
-    <form action="/ask" method="post" class="ask-form" id="ask-form">
-      <textarea name="question" rows="3" placeholder="Why is this buffering?">{{ ask_question|default("") }}</textarea>
-      <div class="ask-controls">
-        <div class="mode-toggle">
-          <label>
-            <input type="radio" name="ask_mode" value="operator" {% if ask_mode != "manager" %}checked{% endif %}>
-            Operator answer
-          </label>
-          <label>
-            <input type="radio" name="ask_mode" value="manager" {% if ask_mode == "manager" %}checked{% endif %}>
-            Manager answer
-          </label>
+<section class="copilot-layout">
+  <div class="copilot-main">
+    <section class="card snapshot-card">
+      <div class="snapshot-header">
+        <div>
+          <h2>Quick System Snapshot</h2>
+          <p class="secondary-text">{{ dashboard_view.quick_stats_note }}</p>
         </div>
-        <button type="submit" class="primary-button" id="ask-submit-button">Ask</button>
       </div>
-      <div class="ask-loading" id="ask-loading" aria-live="polite" hidden>Analyzing current system state...</div>
-      <div class="factor-chips quick-question-chips">
-        {% for item in quick_questions %}
-        <button type="button" class="chip quick-question" data-question="{{ item }}">{{ item }}</button>
+      <div class="snapshot-grid">
+        {% for stat in dashboard_view.quick_stats %}
+        <div class="snapshot-stat">
+          <span class="snapshot-label">{{ stat.label }}</span>
+          <span class="snapshot-value">{{ stat.value }}</span>
+        </div>
         {% endfor %}
       </div>
-    </form>
+    </section>
 
-    {% if ask_answer %}
-    <div class="ask-response">
-      <div class="response-header">
-        <strong>Answer</strong>
-        <span class="muted">Answered at {{ ask_answered_at }}</span>
-      </div>
-      {% if ask_answer_source %}
-      <div class="muted ask-source-note">
-        {% if ask_answer_source == "cached" %}
-        Answered using a recent live snapshot.
-        {% else %}
-        Answered using freshly collected telemetry.
+    <section class="grid grid-4">
+      <article class="card health-card tone-{{ manager_summary.service_health_tone|default('healthy') }}">
+        <div class="card-title-row">
+          <h2>Service Health</h2>
+        </div>
+        <p class="metric">{{ manager_summary.service_health|default("unknown") }}</p>
+        <div class="badges">
+          <span class="badge severity-{{ diagnosis_presentation.severity|default('info') }}">Severity: {{ diagnosis_presentation.severity_display_label|default("Low") }}</span>
+          {% if diagnosis_presentation.scope and diagnosis_presentation.scope != "unknown" %}
+          <span class="badge scope">{{ diagnosis_presentation.scope|default("unknown") }}</span>
+          {% endif %}
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-title-row">
+          <h2>Active Sessions</h2>
+        </div>
+        <p class="metric">{{ plex.active_sessions|default(0) }}</p>
+        <p>{{ plex.transcodes|default(0) }} transcode(s), {{ plex.direct_plays|default(0) }} direct play(s)</p>
+      </article>
+
+      <article class="card diagnosis-card">
+        <div class="card-title-row">
+          <h2>Primary Diagnosis</h2>
+          <button type="button" class="inline-ask" data-question="Explain the current diagnosis and why it fits this telemetry." data-submit="true" data-source="inline_card" data-section="primary_diagnosis" data-prompt-key="home_primary_diagnosis">Ask Plex</button>
+        </div>
+        <p class="metric diagnosis-title">{{ dashboard_view.diagnosis_label|default("unknown") }}</p>
+        {% if dashboard_view.supporting_text %}
+        <p class="secondary-text">{{ dashboard_view.supporting_text }}</p>
         {% endif %}
+        {% if dashboard_view.contributing_factors %}
+        <div class="factor-chips">
+          {% for item in dashboard_view.contributing_factors %}
+          <span class="chip">{{ item }}</span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="secondary-text">No additional contributing factors are surfaced right now.</p>
+        {% endif %}
+      </article>
+
+      <article class="card action-card">
+        <div class="card-title-row">
+          <h2>Primary Action</h2>
+        </div>
+        <p class="metric">{{ diagnosis_presentation.primary_action|default("No immediate action needed.") }}</p>
+      </article>
+    </section>
+
+    <section class="grid grid-2">
+      <article class="card">
+        <div class="card-title-row">
+          <h2>Playback Quality</h2>
+          <button type="button" class="inline-ask" data-question="Why is playback quality scored this way right now?" data-submit="true" data-source="inline_card" data-section="playback_quality" data-prompt-key="home_playback_quality">Ask Plex</button>
+        </div>
+        <p class="metric">{{ dashboard_view.impact_score_label }} <span class="metric-inline-note">({{ dashboard_view.impact_level_label }})</span></p>
+        <p class="secondary-text">{{ dashboard_view.playback_quality_note or dashboard_view.impact_driver_summary }}</p>
+        {% if dashboard_view.score_driver_summary %}
+        <p class="muted"><strong>Why score changed:</strong> {{ dashboard_view.score_driver_summary }}</p>
+        {% endif %}
+        {% if dashboard_view.delivery_confidence_label and dashboard_view.delivery_confidence_label != "High" %}
+        <p class="muted"><strong>Delivery confidence:</strong> {{ dashboard_view.delivery_confidence_label }}. {{ dashboard_view.delivery_confidence_summary }}</p>
+        {% endif %}
+        {% if dashboard_view.recurrence_risk_label and dashboard_view.recurrence_risk_label != "Low" %}
+        <p class="muted"><strong>Recurrence risk:</strong> {{ dashboard_view.recurrence_risk_label }}. {{ dashboard_view.recurrence_summary }}</p>
+        {% endif %}
+      </article>
+
+      <article class="card">
+        <div class="card-title-row">
+          <h2>Capacity Headroom</h2>
+          <button type="button" class="inline-ask" data-question="Explain current headroom and what could change it." data-submit="true" data-source="inline_card" data-section="capacity_headroom" data-prompt-key="home_capacity_headroom">Ask Plex</button>
+        </div>
+        <p class="metric">{{ dashboard_view.capacity_headroom_label }}</p>
+        <p class="secondary-text">{{ dashboard_view.capacity_headroom_summary }}</p>
+      </article>
+    </section>
+
+    {% if dashboard_view.playback_quality_window_active and dashboard_view.playback_quality_note %}
+    <section class="card">
+      <div class="card-title-row">
+        <h2>Recent Playback Note</h2>
+        <button type="button" class="inline-ask" data-question="What happened recently, and how much delivery risk remains?" data-submit="true" data-source="inline_card" data-section="recent_playback_note" data-prompt-key="home_recent_playback_note">Ask Plex</button>
       </div>
+      <p>{{ dashboard_view.playback_quality_note }}</p>
+    </section>
+    {% endif %}
+
+    {% with sessions_card_class='home-sessions-card' %}
+    {% include "sessions_partial.html" %}
+    {% endwith %}
+  </div>
+
+  <div class="copilot-rail">
+    <article class="card home-alerts-card">
+      <div class="card-title-row">
+        <h2>Active Alerts</h2>
+        <button type="button" class="inline-ask" data-question="Summarize what the current alert state means." data-submit="true" data-source="inline_card" data-section="active_alerts" data-prompt-key="home_active_alerts">Ask Plex</button>
+      </div>
+      {% if alerts %}
+      <ul class="stack">
+        {% for alert in alerts[:3] %}
+        <li>
+          <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+          <strong>{{ alert.title }}</strong>
+          <div class="muted">{{ alert.message }}</div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">No active alerts.</p>
       {% endif %}
-      <pre class="response-text">{{ ask_answer }}</pre>
-    </div>
-    {% elif ask_error %}
-    <div class="ask-response ask-error">
-      <div class="response-header">
-        <strong>Unable to answer</strong>
-      </div>
-      <p>{{ ask_error }}</p>
-    </div>
-    {% endif %}
-  </article>
+    </article>
 
-  <article class="card">
-    <h2>Manager Summary</h2>
-    <p><strong>Impact:</strong> {{ dashboard_view.manager_impact_summary }}</p>
-    <p><strong>Diagnosis:</strong> {{ dashboard_view.manager_diagnosis_label }}</p>
-    {% if dashboard_view.manager_contributing_summary %}
-    <p><strong>Contributing factors:</strong> {{ dashboard_view.manager_contributing_summary }}</p>
-    {% endif %}
-    <p><strong>Escalation:</strong> {{ dashboard_view.manager_escalation_label }}</p>
-    <p><strong>Trend:</strong> {{ dashboard_view.manager_trend_summary }}</p>
-  </article>
-
-  <article class="card">
-    <h2>Active Alerts</h2>
-    {% if dashboard_view.alert_rows %}
-    <ul class="stack">
-      {% for alert in dashboard_view.alert_rows %}
-      <li>
-        <span class="badge {{ alert.severity_class }}">{{ alert.severity_label }}</span>
-        <strong>{{ alert.title }}</strong>
-        <div class="muted">{{ alert.message }}</div>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No active alerts.</p>
-    {% endif %}
-  </article>
+    {% include "_copilot_panel.html" %}
+  </div>
 </section>
-
-{% include "sessions_partial.html" %}
 {% endblock %}

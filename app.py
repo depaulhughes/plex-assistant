@@ -1,5 +1,6 @@
 import json
 import sys
+from typing import Any, Dict, List, Optional
 
 from actions import build_action_plan
 from alerts import evaluate_alerts, load_recent_alert_history, log_alerts
@@ -23,8 +24,20 @@ from history import (
     log_diagnosis_event,
     summarize_recent_history,
 )
-from llm import answer_with_llm
+from llm import answer_with_llm, build_follow_up_questions, classify_question_intent
 from summaries import build_diagnosis_presentation, build_manager_summary
+
+
+def resolve_response_mode(page_context: str, requested_mode: str) -> str:
+    normalized_page = (page_context or "").strip().lower()
+    if normalized_page == "operator":
+        return "operator"
+    if normalized_page == "manager":
+        return "manager"
+    normalized_requested = (requested_mode or "").strip().lower()
+    if normalized_requested in {"operator", "manager"}:
+        return normalized_requested
+    return "operator"
 
 
 def build_state() -> dict:
@@ -110,9 +123,11 @@ def build_state() -> dict:
 
     recent_history = load_recent_history()
     state["history_summary"] = summarize_recent_history(recent_history)
+    state["recent_history_events"] = recent_history[-20:]
     state["state_change"] = classify_state_change(state, recent_history)
 
     recent_alert_history = load_recent_alert_history()
+    state["recent_alert_history"] = recent_alert_history[-20:]
     state["alerts"] = evaluate_alerts(state, state["history_summary"], recent_alert_history)
 
     state["manager_summary"] = build_manager_summary(
@@ -238,15 +253,72 @@ def answer_question_from_state(
     state: dict,
     response_mode: str = "operator",
     context_mode: str = "full",
+    page_context: str = "home",
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    ask_source: str = "",
+    ask_section: str = "",
+    ask_prompt_key: str = "",
 ) -> str:
+    result = answer_question_result_from_state(
+        question,
+        state,
+        response_mode=response_mode,
+        context_mode=context_mode,
+        page_context=page_context,
+        conversation_history=conversation_history,
+        ask_source=ask_source,
+        ask_section=ask_section,
+        ask_prompt_key=ask_prompt_key,
+    )
+    return result["answer"]
+
+
+def answer_question_result_from_state(
+    question: str,
+    state: dict,
+    response_mode: str = "operator",
+    context_mode: str = "full",
+    page_context: str = "home",
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    ask_source: str = "",
+    ask_section: str = "",
+    ask_prompt_key: str = "",
+) -> Dict[str, Any]:
+    effective_response_mode = resolve_response_mode(page_context, response_mode)
+    intent = classify_question_intent(question)
     rule_based_answer = answer_question(question, state)
-    return answer_with_llm(
+    answer = answer_with_llm(
         question,
         state,
         rule_based_answer,
-        response_mode=response_mode,
+        response_mode=effective_response_mode,
         context_mode=context_mode,
+        page_context=page_context,
+        intent=intent,
+        conversation_history=conversation_history,
+        ask_source=ask_source,
+        ask_section=ask_section,
+        ask_prompt_key=ask_prompt_key,
     )
+    return {
+        "answer": answer,
+        "intent": intent,
+        "follow_up_questions": build_follow_up_questions(
+            state,
+            intent,
+            response_mode=effective_response_mode,
+            page_context=page_context,
+        ),
+        "page_context": page_context,
+        "ask_source": ask_source,
+        "ask_section": ask_section,
+        "ask_prompt_key": ask_prompt_key,
+        "response_mode": effective_response_mode,
+        "primary_diagnosis": state.get("diagnosis_presentation", {}).get("primary_diagnosis"),
+        "severity": state.get("issue_metadata", {}).get("severity"),
+        "scope": state.get("issue_metadata", {}).get("scope"),
+        "confidence": state.get("issue_metadata", {}).get("confidence"),
+    }
 
 
 if __name__ == "__main__":

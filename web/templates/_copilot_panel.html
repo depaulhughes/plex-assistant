@@ -1,0 +1,104 @@
+<aside class="copilot-panel" id="ask-plex">
+  <section class="card ask-card copilot-card">
+    <div class="copilot-header">
+      <div>
+        <h2>Ask Plex</h2>
+        <p class="secondary-text">{{ ask_helper_text }}</p>
+      </div>
+      {% if ask_memory_turns %}
+      <form action="/ask/clear#ask-plex" method="post" class="inline-form">
+        <input type="hidden" name="page_context" value="{{ page_context }}">
+        <button type="submit" class="secondary-button">Clear</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if ask_memory_turns %}
+    <div class="ask-memory-bar">
+      <span class="muted">Using {{ ask_memory_turns }} recent turn{% if ask_memory_turns != 1 %}s{% endif %} of context.</span>
+    </div>
+    {% endif %}
+
+    <form action="/ask#ask-plex" method="post" class="ask-form" id="ask-form">
+      <input type="hidden" name="page_context" value="{{ page_context }}">
+      <input type="hidden" name="ask_source" value="{{ ask_source|default('panel') }}">
+      <input type="hidden" name="ask_section" value="{{ ask_section|default('') }}">
+      <input type="hidden" name="ask_prompt_key" value="{{ ask_prompt_key|default('') }}">
+      {% if ask_mode_locked %}
+      <input type="hidden" name="ask_mode" value="{{ ask_mode }}">
+      {% endif %}
+      <textarea name="question" rows="3" placeholder="{{ ask_placeholder }}">{{ ask_question|default("") }}</textarea>
+      <div class="ask-controls">
+        {% if ask_mode_locked %}
+        <div class="ask-mode-note muted">{{ ask_mode_label }}</div>
+        {% else %}
+        <div class="mode-toggle">
+          <label>
+            <input type="radio" name="ask_mode" value="operator" {% if ask_mode != "manager" %}checked{% endif %}>
+            Technical analysis
+          </label>
+          <label>
+            <input type="radio" name="ask_mode" value="manager" {% if ask_mode == "manager" %}checked{% endif %}>
+            Decision summary
+          </label>
+        </div>
+        {% endif %}
+        <button type="submit" class="primary-button" id="ask-submit-button">Ask</button>
+      </div>
+      <div class="ask-loading" id="ask-loading" aria-live="polite" hidden>Analyzing current system state...</div>
+      <div class="factor-chips quick-question-chips">
+        {% for item in quick_questions %}
+        <button type="button" class="chip quick-question" data-question="{{ item }}" data-submit="true" data-source="quick_question" data-section="copilot_panel" data-prompt-key="{{ item|lower|replace(' ', '_')|replace('?', '')|replace('/', '_') }}">{{ item }}</button>
+        {% endfor %}
+      </div>
+    </form>
+
+    {% if ask_answer %}
+    <div class="ask-response">
+      <div class="response-header">
+        <strong>Answer</strong>
+        <div class="response-meta">
+          {% if ask_intent %}
+          <span class="badge scope">{{ ask_intent.replace("_", " ") }}</span>
+          {% endif %}
+          {% if page_context %}
+          <span class="badge scope">{{ page_context }}</span>
+          {% endif %}
+          <span class="muted">Answered at {{ ask_answered_at }}</span>
+        </div>
+      </div>
+      {% if ask_answer_source %}
+      <div class="muted ask-source-note">
+        {% if ask_answer_source == "cached" %}
+        Answered using a recent live snapshot.
+        {% else %}
+        Answered using freshly collected telemetry.
+        {% endif %}
+      </div>
+      {% endif %}
+      <pre class="response-text">{{ ask_answer }}</pre>
+      {% if ask_follow_ups %}
+      <div class="ask-follow-up-block">
+        <div class="muted ask-follow-up-label">Suggested follow-ups</div>
+        <div class="factor-chips quick-question-chips">
+          {% for item in ask_follow_ups %}
+          <button type="button" class="chip quick-question" data-question="{{ item }}" data-submit="true" data-source="follow_up" data-section="copilot_panel" data-prompt-key="{{ item|lower|replace(' ', '_')|replace('?', '')|replace('/', '_') }}">{{ item }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    {% elif ask_error %}
+    <div class="ask-response ask-error">
+      <div class="response-header">
+        <strong>Unable to answer</strong>
+      </div>
+      <p>{{ ask_error }}</p>
+    </div>
+    {% else %}
+    <div class="copilot-empty">
+      <p class="muted">Use the shortcuts above or ask about diagnosis, playback quality, headroom, delivery risk, or next steps.</p>
+    </div>
+    {% endif %}
+  </section>
+</aside>

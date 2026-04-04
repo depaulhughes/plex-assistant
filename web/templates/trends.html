@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card trends-header">
+  <h2>Trends</h2>
+  <p class="secondary-text">{{ trend_description }}</p>
+</section>
+
+{% if not grafana_configured %}
+<section class="card">
+  <h2>Grafana Not Configured</h2>
+  <p class="secondary-text">Set <code>GRAFANA_PUBLIC_DASHBOARD_URL</code> to render your public Grafana dashboard here.</p>
+</section>
+{% elif trend_dashboard_url %}
+<section class="trend-dashboard-section">
+  <iframe
+    src="{{ trend_dashboard_url }}"
+    title="Grafana Trends Dashboard"
+    class="trend-dashboard-frame"
+    width="100%"
+    height="2200"
+    loading="lazy"
+    referrerpolicy="no-referrer"
+  ></iframe>
+</section>
+{% else %}
+<section class="card">
+  <h2>Grafana Dashboard Unavailable</h2>
+  <p class="secondary-text">The public Grafana dashboard URL is missing or could not be built.</p>
+</section>
+{% endif %}
+{% endblock %}

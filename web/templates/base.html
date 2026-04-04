@@ -2,24 +2,38 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{ page_title }} | Plex Assistant</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}" />
+    <script>
+      (() => {
+        try {
+          const savedTheme = window.localStorage.getItem("plex-assistant-theme");
+          if (savedTheme === "light" || savedTheme === "dark") {
+            document.documentElement.dataset.theme = savedTheme;
+          }
+        } catch (error) {
+          console.warn("Theme preference unavailable", error);
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v={{ static_asset_version }}" />
   </head>
-  <body data-auto-refresh-seconds="20">
+  <body data-auto-refresh-seconds="{% if active_path == '/trends' %}0{% else %}20{% endif %}"{% if scroll_target %} data-scroll-target="{{ scroll_target }}"{% endif %}>
     <header class="topbar">
       <div class="brand">
-        <h1>Plex Assistant</h1>
-        <p>Local observability dashboard</p>
+        <h1><a href="/">Plex Assistant</a></h1>
+        <p>Johnny's Dashboard</p>
       </div>
       <nav class="nav">
-        <a href="/" class="{% if active_path == '/' %}active{% endif %}">Dashboard</a>
+        <a href="/" class="{% if active_path == '/' %}active{% endif %}">Home</a>
         <a href="/operator" class="{% if active_path == '/operator' %}active{% endif %}">Operator</a>
         <a href="/manager" class="{% if active_path == '/manager' %}active{% endif %}">Manager</a>
+        <a href="/trends" class="{% if active_path == '/trends' %}active{% endif %}">Trends</a>
         <a href="/history" class="{% if active_path == '/history' %}active{% endif %}">History</a>
         <a href="/alerts" class="{% if active_path == '/alerts' %}active{% endif %}">Alerts</a>
       </nav>
       <div class="toolbar">
+        <button id="theme-toggle" type="button" aria-label="Toggle dark mode">Dark mode</button>
         <button id="refresh-button" type="button">Refresh</button>
         <span class="timestamp">Last updated: {{ generated_at_label }}</span>
       </div>
@@ -38,6 +52,6 @@
       {% endif %}
     </main>
 
-    <script src="{{ url_for('static', path='app.js') }}"></script>
+    <script src="{{ url_for('static', path='app.js') }}?v={{ static_asset_version }}"></script>
   </body>
 </html>

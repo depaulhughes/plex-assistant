@@ -1,43 +1,55 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="grid grid-2">
-  <article class="card">
-    <h2>Current Alerts</h2>
-    {% if alerts_display %}
-    <ul class="stack">
-      {% for alert in alerts_display %}
-      <li>
-        <span class="badge {{ alert.severity_class }}">{{ alert.severity_label }}</span>
-        <strong>{{ alert.title }}</strong>
-        <div>{{ alert.message }}</div>
-        <div class="muted">Sessions: {{ alert.sessions_label }}</div>
-        <div class="muted">Clients: {{ alert.clients_label }}</div>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No active alerts.</p>
-    {% endif %}
-  </article>
+<section class="copilot-layout">
+  <div class="copilot-main">
+    <section class="grid grid-2">
+      <article class="card">
+        <div class="card-title-row">
+          <h2>Current Alerts</h2>
+          <button type="button" class="inline-ask" data-question="Explain whether any current alerts need action." data-submit="true" data-source="inline_card" data-section="current_alerts" data-prompt-key="alerts_current_alerts">Ask Plex</button>
+        </div>
+        {% if alerts %}
+        <ul class="stack">
+          {% for alert in alerts %}
+          <li>
+            <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+            <strong>{{ alert.title }}</strong>
+            <div>{{ alert.message }}</div>
+            <div class="muted">Sessions: {{ alert.affected_sessions|default([])|join(", ") or "none" }}</div>
+            <div class="muted">Clients: {{ alert.affected_clients|default([])|join(", ") or "none" }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">No active alerts.</p>
+        {% endif %}
+      </article>
 
-  <article class="card">
-    <h2>Recent Alert History</h2>
-    {% if recent_alert_history %}
-    <ul class="stack">
-      {% for alert in recent_alert_history %}
-      <li>
-        <span class="badge {{ alert.severity_class }}">{{ alert.severity_label }}</span>
-        <strong>{{ alert.alert_type }}</strong>
-        <div>{{ alert.title }}</div>
-        <div class="muted">{{ alert.triggered_at }}</div>
-        <div class="muted">Cooldown key: {{ alert.cooldown_label }}</div>
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p class="empty">No recent alert history.</p>
-    {% endif %}
-  </article>
+      <article class="card">
+        <div class="card-title-row">
+          <h2>Recent Alert History</h2>
+          <button type="button" class="inline-ask" data-question="Summarize recent alert patterns and whether they suggest a recurring problem." data-submit="true" data-source="inline_card" data-section="recent_alert_history" data-prompt-key="alerts_recent_history">Ask Plex</button>
+        </div>
+        {% if recent_alert_history %}
+        <ul class="stack">
+          {% for alert in recent_alert_history %}
+          <li>
+            <span class="badge severity-{{ alert.severity|default('info') }}">{{ alert.severity|default("info") }}</span>
+            <strong>{{ alert.alert_type }}</strong>
+            <div>{{ alert.title }}</div>
+            <div class="muted">{{ alert.triggered_at }}</div>
+            <div class="muted">Cooldown key: {{ alert.cooldown_key|default("n/a") }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">No recent alert history.</p>
+        {% endif %}
+      </article>
+    </section>
+  </div>
+
+  {% include "_copilot_panel.html" %}
 </section>
 {% endblock %}
