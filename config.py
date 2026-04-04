@@ -1,6 +1,7 @@
 import json
 import os
 import warnings
+import logging
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -11,7 +12,9 @@ warnings.filterwarnings(
     message=".*urllib3 v2 only supports OpenSSL.*",
 )
 
-load_dotenv()
+logger = logging.getLogger("plex_assistant.config")
+
+DOTENV_LOADED = load_dotenv()
 
 
 def _env_bool(name: str, default: bool) -> bool:

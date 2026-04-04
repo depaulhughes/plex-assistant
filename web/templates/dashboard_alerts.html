@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+  <h2>Active Alerts</h2>
+  {% if dashboard_view.alert_rows %}
+  <ul class="stack">
+    {% for alert in dashboard_view.alert_rows %}
+    <li>
+      <span class="badge {{ alert.severity_class }}">{{ alert.severity_label }}</span>
+      <strong>{{ alert.title }}</strong>
+      <div class="muted">{{ alert.message }}</div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No active alerts.</p>
+  {% endif %}
+</section>
+{% endblock %}

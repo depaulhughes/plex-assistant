@@ -1,9 +1,13 @@
+print("🔥 NEW NEW BUILD DEPLOYED 🔥")
+
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 from uuid import uuid4
 
+import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,7 +33,8 @@ STATIC_ASSET_VERSION = "20260403-ask-mobile-fix-1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 app = FastAPI(title="Plex Assistant UI")
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+logger = logging.getLogger("plex_assistant.web")
 
 _STATE_SNAPSHOT_CACHE: Dict[str, Any] = {
     "generated_at": None,
@@ -1155,6 +1160,13 @@ def build_web_context(
     dashboard_view = _display_dashboard_view(state)
     manager_view = _display_manager_view(state)
     operator_view = _display_operator_view(state)
+    display_history = [build_history_display_event(_as_dict(event)) for event in reversed(recent_history)]
+    display_sessions = _display_sessions(_as_list(_as_dict(state.get("plex")).get("sessions")))
+    display_current_alerts = _display_alerts(_as_list(current_alerts))
+    display_recent_alerts = _display_alerts(list(reversed(recent_alert_history)))
+    dashboard_view = _display_dashboard_view(state)
+    manager_view = _display_manager_view(state)
+    operator_view = _display_operator_view(state)
 
     return {
         "ok": snapshot["ok"],
@@ -1180,6 +1192,10 @@ def build_web_context(
         "manager_view": manager_view,
         "operator_view": operator_view,
         "recent_history": display_history,
+        "recent_alert_history": display_recent_alerts,
+        "alerts_display": display_current_alerts,
+        "sessions_display": display_sessions,
+        "session_rows": display_sessions,
         "recent_alert_history": display_recent_alerts,
         "alerts_display": display_current_alerts,
         "sessions_display": display_sessions,
@@ -1407,6 +1423,36 @@ def api_state() -> JSONResponse:
             "status": "ok",
             "generated_at": snapshot["generated_at"],
             "state": snapshot["state"],
+        }
+    )
+
+
+@app.get("/health")
+def health() -> JSONResponse:
+    return JSONResponse({"ok": True})
+
+
+@app.get("/debug/connectivity")
+def debug_connectivity() -> JSONResponse:
+    results = [
+        {
+            "name": "plex_base",
+            **_probe_url(PLEX_BASE_URL, params={"X-Plex-Token": PLEX_TOKEN}),
+        },
+        {
+            "name": "plex_identity",
+            **_probe_url(f"{PLEX_BASE_URL}/identity", params={"X-Plex-Token": PLEX_TOKEN}),
+        },
+        {
+            "name": "plex_status_sessions",
+            **_probe_url(f"{PLEX_BASE_URL}/status/sessions", params={"X-Plex-Token": PLEX_TOKEN}),
+        },
+    ]
+    return JSONResponse(
+        {
+            "ok": all(item["ok"] for item in results),
+            "plex_base_url": PLEX_BASE_URL,
+            "results": results,
         }
     )
 

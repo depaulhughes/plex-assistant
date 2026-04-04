@@ -1,6 +1,6 @@
 <section class="card {{ sessions_card_class|default('') }}">
   <h2>Active Sessions</h2>
-  {% if sessions %}
+  {% if session_rows %}
   <div class="table-wrap">
     <table class="sessions-table">
       <thead>
@@ -14,7 +14,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for session in sessions %}
+        {% for session in session_rows %}
         <tr>
           <td data-label="Title">{{ session.title }}{% if session.year %} ({{ session.year }}){% endif %}</td>
           <td data-label="Client">{{ session.player_product or session.tautulli_product or "unknown" }}</td>
@@ -22,7 +22,7 @@
             {% if session.tautulli_state == "buffering" %}
             <span class="badge severity-warning">buffering</span>
             {% else %}
-            {{ session.tautulli_state or session.player_state or "unknown" }}
+            {{ session.state_label }}
             {% endif %}
           </td>
           <td data-label="Decision">{{ session.decision or "unknown" }}</td>

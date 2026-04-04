@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+  <h2>{{ page_title }}</h2>
+  <p><strong>Last updated:</strong> {{ generated_at_label }}</p>
+  <p><strong>Service health:</strong> {{ dashboard_view.service_health_label }}</p>
+  <p><strong>Primary diagnosis:</strong> {{ dashboard_view.diagnosis_label }}</p>
+</section>
+{% endblock %}
