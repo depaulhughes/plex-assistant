@@ -1,8 +1,8 @@
-<section class="card">
+<section class="card {{ sessions_card_class|default('') }}">
   <h2>Active Sessions</h2>
   {% if sessions %}
   <div class="table-wrap">
-    <table>
+    <table class="sessions-table">
       <thead>
         <tr>
           <th>Title</th>
@@ -16,18 +16,18 @@
       <tbody>
         {% for session in sessions %}
         <tr>
-          <td>{{ session.title }}{% if session.year %} ({{ session.year }}){% endif %}</td>
-          <td>{{ session.player_product or session.tautulli_product or "unknown" }}</td>
-          <td>
+          <td data-label="Title">{{ session.title }}{% if session.year %} ({{ session.year }}){% endif %}</td>
+          <td data-label="Client">{{ session.player_product or session.tautulli_product or "unknown" }}</td>
+          <td data-label="State">
             {% if session.tautulli_state == "buffering" %}
             <span class="badge severity-warning">buffering</span>
             {% else %}
             {{ session.tautulli_state or session.player_state or "unknown" }}
             {% endif %}
           </td>
-          <td>{{ session.decision or "unknown" }}</td>
-          <td>{{ session.bitrate_kbps or 0 }} kbps</td>
-          <td class="muted">
+          <td data-label="Decision">{{ session.decision or "unknown" }}</td>
+          <td data-label="Bitrate">{{ session.bitrate_kbps or 0 }} kbps</td>
+          <td data-label="Traits" class="muted">
             {{ session.container or "unknown" }} /
             {{ session.audio_codec or "unknown" }} /
             {{ session.subtitle_codec or "no subtitles" }}

@@ -28,6 +28,9 @@ def get_recent_upload_analysis(window_seconds: int = 60) -> dict:
             "max_upload_mbps": 0.0,
             "above_warn_count": 0,
             "above_peak_count": 0,
+            "consecutive_saturation_count": 0,
+            "sustained_upload_saturation": False,
+            "burst_upload_saturation": False,
             "sustained_upload_high": False,
             "brief_upload_spike": False,
             "upload_std_dev": 0.0,
@@ -42,8 +45,19 @@ def get_recent_upload_analysis(window_seconds: int = 60) -> dict:
 
     above_warn_count = sum(1 for x in samples if x > UPLOAD_WARN_MBPS)
     above_peak_count = sum(1 for x in samples if x > UPLOAD_PEAK_MBPS)
+    saturation_threshold = max(UPLOAD_PEAK_MBPS, UPLOAD_LIMIT_MBPS * 0.9)
+    consecutive_saturation_count = 0
+    max_consecutive_saturation = 0
+    for sample in samples:
+        if sample >= saturation_threshold:
+            consecutive_saturation_count += 1
+            max_consecutive_saturation = max(max_consecutive_saturation, consecutive_saturation_count)
+        else:
+            consecutive_saturation_count = 0
 
-    sustained_upload_high = above_warn_count >= max(3, len(samples) // 2)
+    sustained_upload_saturation = max_consecutive_saturation >= 3
+    burst_upload_saturation = max_upload >= saturation_threshold and not sustained_upload_saturation
+    sustained_upload_high = sustained_upload_saturation or above_warn_count >= max(4, (len(samples) * 2) // 3)
     brief_upload_spike = max_upload > UPLOAD_WARN_MBPS and not sustained_upload_high
 
     return {
@@ -52,6 +66,9 @@ def get_recent_upload_analysis(window_seconds: int = 60) -> dict:
         "max_upload_mbps": round(max_upload, 2),
         "above_warn_count": above_warn_count,
         "above_peak_count": above_peak_count,
+        "consecutive_saturation_count": max_consecutive_saturation,
+        "sustained_upload_saturation": sustained_upload_saturation,
+        "burst_upload_saturation": burst_upload_saturation,
         "sustained_upload_high": sustained_upload_high,
         "brief_upload_spike": brief_upload_spike,
         "upload_std_dev": round(std_dev, 2),
@@ -89,6 +106,8 @@ def derive_facts(state: dict) -> dict:
 
     facts["recent_upload_avg_mbps"] = recent_upload.get("avg_upload_mbps", 0)
     facts["recent_upload_max_mbps"] = recent_upload.get("max_upload_mbps", 0)
+    facts["sustained_upload_saturation"] = recent_upload.get("sustained_upload_saturation", False)
+    facts["burst_upload_saturation"] = recent_upload.get("burst_upload_saturation", False)
     facts["sustained_upload_high"] = recent_upload.get("sustained_upload_high", False)
     facts["brief_upload_spike"] = recent_upload.get("brief_upload_spike", False)
     facts["upload_std_dev"] = recent_upload.get("upload_std_dev", 0)

@@ -1,0 +1,16 @@
+services:
+  plex-assistant:
+    build: .
+    container_name: plex-assistant
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PLEX_BASE_URL: http://10.0.0.119:32400
+      HISTORY_LOG_PATH: /data/plex_assistant_history.jsonl
+      ALERT_LOG_PATH: /data/plex_assistant_alerts.jsonl
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - ./data:/data

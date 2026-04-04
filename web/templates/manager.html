@@ -1,33 +1,134 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="grid grid-3">
-  <article class="card health-card tone-{{ manager_summary.service_health_tone|default('healthy') }}">
-    <h2>Service Health</h2>
-    <p class="metric">{{ manager_summary.service_health|default("unknown") }}</p>
-  </article>
-  <article class="card">
-    <h2>Severity</h2>
-    <p class="metric">{{ manager_summary.severity|default(diagnosis_presentation.severity|default("info")) }}</p>
-  </article>
-  <article class="card">
-    <h2>Scope</h2>
-    <p class="metric">{{ manager_summary.issue_scope|default(diagnosis_presentation.scope|default("unknown")) }}</p>
-  </article>
-</section>
+<section class="copilot-layout">
+  <div class="copilot-main">
+    <section class="card snapshot-card">
+      <div class="snapshot-header">
+        <div>
+          <h2>Manager Summary</h2>
+          <p class="secondary-text">{{ manager_view.executive_conclusion }}</p>
+        </div>
+        <button type="button" class="inline-ask" data-question="Give me the decision-level takeaway from this page." data-submit="true" data-source="inline_card" data-section="manager_summary" data-prompt-key="manager_summary">Ask Plex</button>
+      </div>
+      <div class="manager-summary-grid">
+        <div class="manager-summary-item">
+          <span class="snapshot-label">User impact</span>
+          <span class="snapshot-value">{{ manager_view.executive_user_impact }}</span>
+        </div>
+        <div class="manager-summary-item">
+          <span class="snapshot-label">Action urgency</span>
+          <span class="snapshot-value">{{ manager_view.executive_action_urgency }}</span>
+        </div>
+        <div class="manager-summary-item">
+          <span class="snapshot-label">Diagnosis</span>
+          <span class="snapshot-value">{{ manager_view.diagnosis_label|default("unknown") }}</span>
+        </div>
+        <div class="manager-summary-item">
+          <span class="snapshot-label">Delivery confidence</span>
+          <span class="snapshot-value">{{ manager_view.delivery_confidence_label|default("High") }}</span>
+        </div>
+        <div class="manager-summary-item">
+          <span class="snapshot-label">Delivery stability risk</span>
+          <span class="snapshot-value">{{ manager_view.recurrence_risk_label|default("Low") }}</span>
+        </div>
+      </div>
+    </section>
 
-<section class="card">
-  <h2>Current Situation</h2>
-  <p><strong>Impact:</strong> {{ manager_summary.impact_summary|default("No impact summary available.") }}</p>
-  <p><strong>Primary diagnosis:</strong> {{ manager_summary.current_diagnosis_label|default(diagnosis_presentation.primary_diagnosis_label|default("unknown")) }}</p>
-  {% if manager_summary.contributing_summary %}
-  <p><strong>Contributing factors:</strong> {{ manager_summary.contributing_summary }}</p>
-  {% endif %}
-  {% if manager_summary.insight %}
-  <p class="manager-insight"><strong>Insight:</strong> {{ manager_summary.insight }}</p>
-  {% endif %}
-  <p><strong>Recommended action:</strong> {{ manager_summary.recommended_action|default("No immediate action needed.") }}</p>
-  <p><strong>Escalation needed:</strong> {% if manager_summary.escalation_needed %}Yes{% else %}No{% endif %}</p>
-  <p><strong>Trend:</strong> {{ manager_summary.trend_summary|default("No trend summary available.") }}</p>
+    <section class="grid grid-2">
+      <article class="card">
+        <div class="card-title-row">
+          <h2>Current Situation</h2>
+          <button type="button" class="inline-ask" data-question="Summarize the current situation, delivery risk, and what it means for me." data-submit="true" data-source="inline_card" data-section="manager_summary" data-prompt-key="manager_current_situation">Ask Plex</button>
+        </div>
+        <p><strong>Impact:</strong> {{ manager_view.impact_summary|default("No impact summary available.") }}</p>
+        <p><strong>Primary diagnosis:</strong> {{ manager_view.diagnosis_label|default("unknown") }}</p>
+        {% if manager_view.delivery_confidence_label and manager_view.delivery_confidence_label != "High" %}
+        <p><strong>Delivery confidence:</strong> {{ manager_view.delivery_confidence_label }}. {{ manager_view.delivery_confidence_summary }}</p>
+        {% endif %}
+        {% if manager_view.recurrence_risk_label and manager_view.recurrence_risk_label != "Low" %}
+        <p><strong>Delivery stability risk:</strong> {{ manager_view.recurrence_risk_label }}. {{ manager_view.recurrence_summary }}</p>
+        {% endif %}
+        {% if manager_view.contributing_summary %}
+        <p><strong>Contributing factors:</strong> {{ manager_view.contributing_summary }}</p>
+        {% endif %}
+        {% if manager_view.insight %}
+        <p class="manager-insight"><strong>Insight:</strong> {{ manager_view.insight }}</p>
+        {% endif %}
+      </article>
+
+      <article class="card">
+        <div class="card-title-row">
+          <h2>Recommendation Ladder</h2>
+          <button type="button" class="inline-ask" data-question="Why is this the recommended action level?" data-submit="true" data-source="inline_card" data-section="recommendation_ladder" data-prompt-key="manager_recommendation_ladder">Ask Plex</button>
+        </div>
+        <p><strong>Bucket:</strong> {{ manager_view.recommendation_bucket }}</p>
+        <p><strong>Why:</strong> {{ manager_view.recommendation_reason }}</p>
+        <p><strong>Recommended action:</strong> {{ manager_view.recommended_action|default("No immediate action needed.") }}</p>
+        <p><strong>Escalation needed:</strong> {{ manager_view.escalation_label }}</p>
+      </article>
+    </section>
+
+    <section class="grid grid-2">
+      <article class="card">
+        <h2>Why this is stable</h2>
+        {% if manager_view.why_not_worse %}
+        <ul class="stack">
+          {% for item in manager_view.why_not_worse %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">No specific downgrade evidence is available.</p>
+        {% endif %}
+      </article>
+
+      <article class="card">
+        <div class="card-title-row">
+          <h2>Escalation Triggers</h2>
+          <button type="button" class="inline-ask" data-question="What specific conditions would justify escalation?" data-submit="true" data-source="inline_card" data-section="escalation_triggers" data-prompt-key="manager_escalation_triggers">Ask Plex</button>
+        </div>
+        {% if manager_view.escalation_triggers %}
+        <ul class="stack">
+          {% for item in manager_view.escalation_triggers %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">No escalation triggers are currently defined.</p>
+        {% endif %}
+      </article>
+    </section>
+
+    <section class="grid grid-2">
+      <article class="card">
+        <h2>Affected Scope Summary</h2>
+        <p><strong>Users affected / active sessions:</strong> {{ manager_view.affected_users_label }}</p>
+        <p><strong>Top affected client:</strong> {{ manager_view.top_affected_client_label }}</p>
+        <p><strong>Other sessions healthy:</strong> {{ manager_view.other_sessions_healthy_label }}</p>
+        <p><strong>Playback still progressing:</strong> {{ manager_view.playback_progressing_label }}</p>
+      </article>
+
+      <article class="card">
+        <h2>Trend Judgment</h2>
+        <p><strong>Current trend:</strong> {{ manager_view.trend_judgment_label }}</p>
+        <p><strong>History context:</strong> {{ manager_view.trend_summary|default("No trend summary available.") }}</p>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Impact Breakdown</h2>
+      <div class="manager-summary-grid manager-breakdown-grid">
+        {% for item in manager_view.impact_breakdown_rows %}
+        <div class="manager-summary-item">
+          <span class="snapshot-label">{{ item.label }}</span>
+          <span class="snapshot-value">{{ item.value }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  {% include "_copilot_panel.html" %}
 </section>
 {% endblock %}
