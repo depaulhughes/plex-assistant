@@ -3,7 +3,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from config import ALERT_COOLDOWN_MINUTES, ALERT_LOG_PATH, ENABLE_ALERT_LOGGING
+from config import (
+    ALERT_COOLDOWN_MINUTES,
+    ALERT_LOG_PATH,
+    ALERT_RETENTION_DAYS,
+    ALERT_RETENTION_MAX_EVENTS,
+    ENABLE_ALERT_LOGGING,
+)
 
 
 def _utc_now_iso() -> str:
@@ -37,9 +43,34 @@ def _read_jsonl(path: str) -> list[dict]:
     return rows
 
 
+def _prune_alert_rows(rows: list[dict]) -> list[dict]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=ALERT_RETENTION_DAYS)
+    kept: list[dict] = []
+
+    for row in rows:
+        timestamp = _parse_timestamp(str(row.get("triggered_at") or ""))
+        if timestamp is None or timestamp >= cutoff:
+            kept.append(row)
+
+    if ALERT_RETENTION_MAX_EVENTS > 0:
+        kept = kept[-ALERT_RETENTION_MAX_EVENTS:]
+
+    return kept
+
+
+def _write_jsonl(path: str, rows: list[dict]) -> None:
+    file_path = Path(path)
+    with file_path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
 def load_recent_alert_history(limit: int = 200) -> list[dict]:
     rows = _read_jsonl(ALERT_LOG_PATH)
-    return rows[-limit:]
+    pruned_rows = _prune_alert_rows(rows)
+    if pruned_rows != rows and ENABLE_ALERT_LOGGING:
+        _write_jsonl(ALERT_LOG_PATH, pruned_rows)
+    return pruned_rows[-limit:]
 
 
 def _alert_impact_size(alert: dict) -> int:
@@ -88,13 +119,12 @@ def should_emit_alert(alert: dict, recent_alert_history: list[dict]) -> bool:
     return True
 
 
-def evaluate_alerts(current_state: dict, history_summary: dict, recent_alert_history: list[dict]) -> list[dict]:
+def _build_alert_candidates(current_state: dict, history_summary: dict) -> list[dict]:
     structured = current_state.get("structured_diagnosis", {})
     metadata = current_state.get("issue_metadata", {})
     facts = current_state.get("facts", {})
     system = current_state.get("system", {})
     diagnosis = structured.get("most_likely_cause")
-    alerts = []
     now = _utc_now_iso()
     recent_history = current_state.get("recent_history_events", [])
 
@@ -242,6 +272,13 @@ def evaluate_alerts(current_state: dict, history_summary: dict, recent_alert_his
                 )
                 break
 
+    return candidates
+
+
+def evaluate_alerts(current_state: dict, history_summary: dict, recent_alert_history: list[dict]) -> list[dict]:
+    candidates = _build_alert_candidates(current_state, history_summary)
+    alerts = []
+
     for alert in candidates:
         if should_emit_alert(alert, recent_alert_history):
             alerts.append(alert)
@@ -249,11 +286,18 @@ def evaluate_alerts(current_state: dict, history_summary: dict, recent_alert_his
     return alerts
 
 
+def current_active_alerts(current_state: dict, history_summary: dict) -> list[dict]:
+    return _build_alert_candidates(current_state, history_summary)
+
+
 def log_alerts(alerts: list[dict]) -> None:
     if not alerts or not ENABLE_ALERT_LOGGING:
         return
 
     file_path = Path(ALERT_LOG_PATH)
-    with file_path.open("a", encoding="utf-8") as handle:
-        for alert in alerts:
+    existing_rows = _read_jsonl(ALERT_LOG_PATH)
+    existing_rows.extend(alerts)
+    pruned_rows = _prune_alert_rows(existing_rows)
+    with file_path.open("w", encoding="utf-8") as handle:
+        for alert in pruned_rows:
             handle.write(json.dumps(alert, sort_keys=True) + "\n")

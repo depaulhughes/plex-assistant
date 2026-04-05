@@ -515,6 +515,10 @@ def build_structured_diagnosis(state: dict) -> dict:
     if upload_contradiction_guard:
         ruled_out.append("upload_saturation")
 
+    if facts.get("startup_spike_expected"):
+        ruled_out.append("upload_saturation")
+        ruled_out.append("wan_instability")
+
     if buffering_confirmed:
         risk_factors.append("buffering_confirmed")
 
@@ -523,6 +527,9 @@ def build_structured_diagnosis(state: dict) -> dict:
 
     if facts.get("upload_is_bursty"):
         risk_factors.append("bursty_upload_pattern")
+
+    if facts.get("startup_spike_expected"):
+        risk_factors.append("startup_buffer_fill")
 
     if facts.get("upload_mostly_plex"):
         risk_factors.append("upload_mostly_plex")

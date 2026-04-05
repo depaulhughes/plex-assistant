@@ -7,6 +7,18 @@ from config import client
 def classify_question_intent(question: str) -> str:
     q = question.lower().strip()
 
+    if any(token in q for token in ["noise or real", "real issue or noise", "just noise", "false alarm", "actually concerning", "meaningful or mostly noise"]):
+        return "noise_vs_real_issue"
+    if any(token in q for token in ["do i need to act", "should i act", "act now", "need action", "should we escalate", "do we need to escalate"]):
+        return "act_no_act_decision"
+    if any(token in q for token in ["what would fail first", "fail first", "failure path", "break first", "next failure mode"]):
+        return "failure_path"
+    if any(token in q for token in ["localized or broad", "localized or broader", "client-specific or system-wide", "system wide or client", "scope", "broader issue"]):
+        return "scope_assessment"
+    if any(token in q for token in ["can i handle another stream", "another stream", "capacity", "headroom", "margin", "safe to add", "can handle more"]):
+        return "capacity_check"
+    if any(token in q for token in ["what should i do", "what do i do", "next step", "next check", "troubleshoot", "troubleshooting", "how should i investigate"]):
+        return "troubleshooting_next_steps"
     if any(token in q for token in ["compare", "difference", "vs", "versus", "rather than", "or is it"]):
         return "comparison"
     if any(token in q for token in ["should i worry", "risk", "urgent", "severity", "impact", "escalat"]):
@@ -16,12 +28,12 @@ def classify_question_intent(question: str) -> str:
     if any(token in q for token in ["optimiz", "improve", "prevent", "avoid", "reduce buffering", "best way"]):
         return "optimization"
     if any(token in q for token in ["what's happening", "whats happening", "right now", "status", "current state"]):
-        return "status"
+        return "status_check"
     if any(token in q for token in ["why", "explain", "how come", "what does"]):
-        return "explanation"
+        return "root_cause"
     if any(token in q for token in ["diagnos", "cause", "client issue", "server issue", "upload", "bottleneck", "problem"]):
-        return "diagnosis"
-    return "status"
+        return "root_cause"
+    return "general"
 
 
 def _concise_sessions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -353,11 +365,11 @@ def build_follow_up_questions(state: Dict[str, Any], intent: str, response_mode:
                 "Do the recent alerts form a pattern?",
             ])
 
-    if intent in {"status", "risk_assessment"}:
+    if intent in {"status", "status_check", "risk_assessment", "noise_vs_real_issue", "capacity_check"}:
         suggestions.extend(["Is this a client issue or a server issue?", "What should I do next?"])
-    if intent in {"diagnosis", "explanation", "comparison"}:
+    if intent in {"diagnosis", "explanation", "comparison", "root_cause", "failure_path", "scope_assessment"}:
         suggestions.extend(["What evidence supports that diagnosis?", "What causes have been ruled out?"])
-    if intent in {"action", "optimization"}:
+    if intent in {"action", "optimization", "act_no_act_decision", "troubleshooting_next_steps"}:
         suggestions.extend(["What would confirm improvement?", "When should I escalate this?"])
     if primary_diagnosis == "client_network_path_sensitivity":
         suggestions.append("Why does this look client-specific instead of server-wide?")
@@ -446,12 +458,34 @@ def answer_with_llm(
     }
     intent_instructions = {
         "status": "Lead with what is happening right now and how broad the impact is.",
+        "status_check": "Lead with what is happening right now and how broad the impact is.",
         "diagnosis": "Focus on the most likely cause, the strongest supporting evidence, and the key ruled-out alternatives.",
+        "root_cause": "Focus on the most likely cause, the strongest supporting evidence, and the key ruled-out alternatives.",
         "action": "Focus on the most useful next actions, checks, escalation criteria, and what would confirm improvement.",
+        "troubleshooting_next_steps": "Focus on the most useful next actions, checks, escalation criteria, and what would confirm improvement.",
         "explanation": "Explain why the diagnosis fits in clear grounded terms without becoming speculative.",
         "comparison": "Compare the leading explanations directly and explain why one fits better than the other.",
         "risk_assessment": "Focus on urgency, user impact, whether this is localized or broad, and whether it needs escalation.",
         "optimization": "Focus on practical ways to improve resilience or reduce recurrence, grounded in the current system state.",
+        "noise_vs_real_issue": "Decide whether the current pattern is meaningful or mostly noise, then justify that verdict with concrete evidence and a recommended posture.",
+        "act_no_act_decision": "Give a clear recommendation about whether action is needed now, what supports that recommendation, and what would change it.",
+        "failure_path": "Focus on the most likely next failure mode, why it would fail first, what is ruled out, and what to watch next.",
+        "scope_assessment": "Focus on whether the issue looks localized or broad, who or what is most affected, and what would verify the scope.",
+        "capacity_check": "Focus on current margin, what is consuming it, what would tighten it next, and whether adding more load looks safe.",
+        "general": "Answer in the most natural structured shape for the question instead of forcing a generic status template.",
+    }
+    response_schema_instructions = {
+        "status": "Use this response shape unless a more specific cue overrides it: Current State, Recent Behavior, Risk / What Could Happen Next, What to Do.",
+        "status_check": "Use this response shape unless a more specific cue overrides it: Current State, Recent Behavior, Risk / What Could Happen Next, What to Do.",
+        "noise_vs_real_issue": "Use this response shape: Verdict, Why, Evidence, Recommended Posture.",
+        "act_no_act_decision": "Use this response shape: Recommendation, Why Now / Why Not, What Would Change The Recommendation, Escalation Trigger.",
+        "failure_path": "Use this response shape: Most Likely Failure Mode, Why, What Is Ruled Out, What To Watch Next.",
+        "scope_assessment": "Use this response shape: Scope, Most Likely Affected Client Or Group, Why It Looks Localized Or Broad, Verification Step.",
+        "capacity_check": "Use this response shape: Current Margin, What Is Consuming It, What Would Tighten It Next, Is Another Stream Safe?.",
+        "troubleshooting_next_steps": "Use this response shape: Best Next Step, Why This Check Matters, What To Inspect, What Outcome Would Change The Conclusion.",
+        "root_cause": "Use this response shape: Most Likely Cause, Why It Fits, What Is Ruled Out, Best Next Check.",
+        "risk_assessment": "Use this response shape: Risk Level, Why It Matters, What Is Containing It, What Would Escalate It.",
+        "general": "Choose the smallest useful structured shape for the actual question. Do not force the standard four-part status layout if another schema is more natural.",
     }
 
     instructions = (
@@ -500,6 +534,8 @@ def answer_with_llm(
         "If response_mode is operator, use operator-style detail by default. "
         "If response_mode is manager, use a concise manager-style summary by default. "
         "Operator and manager answers must feel meaningfully different in style and emphasis. "
+        "Operator answers should prioritize mechanics, root cause, subsystem pressure, telemetry evidence, and what to inspect next. "
+        "Manager answers should prioritize user impact, urgency, operational significance, action recommendation, and whether to escalate or monitor. "
         "Keep the same primary diagnosis, severity, scope, and confidence across response modes. Only presentation should differ. "
         "You may mention a small number of contributing factors when they are present, but do not replace the primary diagnosis with them. "
         "Use conversation_memory only to maintain short conversational continuity. Do not let prior turns override the current telemetry snapshot. "
@@ -507,6 +543,8 @@ def answer_with_llm(
         "If ask_context.current_section is present, treat that card or section as a first-class context signal and answer it directly before broadening to the overall page. "
         "Do not let different card actions collapse into the same generic page summary. "
         "When the user asks what to do, give concrete next checks or actions grounded in telemetry instead of generic filler. "
+        "Keep answers structured but not rigid. Not every answer needs the same four sections. "
+        "Choose the response shape that best fits the detected intent and the current page lens. "
         "Be concise but specific."
     )
 
@@ -562,13 +600,16 @@ IMPORTANT:
 - If response_mode is operator, include useful technical detail, severity, scope, confidence, and next checks.
 - If response_mode is operator, you may include up to 3 contributing factors when clearly supported.
 - For recovered-but-fragile or burst-sensitive states, do not say “healthy,” “no issue,” or “operating normally” if delivery_state shows reduced confidence, guarded headroom, or non-low recurrence risk.
-- Structure the answer in four concise parts: Current state, Recent behavior, Risk / what could happen next, What to do.
+- Use plain section titles only. Do not prefix section titles with markdown heading syntax like #, ##, or ###.
+- Choose the response structure that best fits the detected intent instead of forcing the same section pattern every time.
+- Let Operator and Manager answers differ clearly in framing even when they share the same underlying facts.
 - In the What to do section, prefer concrete next checks and actions grounded in the telemetry.
 - If context_mode is web_ask, answer from the compact current-state summary without assuming missing details beyond what is present.
 - {mode_instructions.get(response_mode, mode_instructions["operator"])}
 - {page_instructions.get(page_context, page_instructions["home"])}
 - {page_mode_instructions.get((page_context, response_mode), "Keep the page purpose and selected lens central to the answer.")}
 - {intent_instructions.get(intent, intent_instructions["status"])}
+- {response_schema_instructions.get(intent, response_schema_instructions["general"])}
 - {section_instructions.get(ask_section, "Keep the answer anchored to the requested section and the current telemetry.")}
 
 Live system context:

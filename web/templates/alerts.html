@@ -3,11 +3,11 @@
 {% block content %}
 <section class="copilot-layout">
   <div class="copilot-main">
-    <section class="grid grid-2">
-      <article class="card">
+    <section class="grid grid-2 alerts-page-grid">
+      <article class="card alerts-current-card">
         <div class="card-title-row">
           <h2>Current Alerts</h2>
-          <button type="button" class="inline-ask" data-question="Explain whether any current alerts need action." data-submit="true" data-source="inline_card" data-section="current_alerts" data-prompt-key="alerts_current_alerts">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Explain whether any current alerts need action." data-submit="true" data-source="inline_card" data-section="current_alerts" data-prompt-key="alerts_current_alerts">Ask Plex AI</button>
         </div>
         {% if alerts %}
         <ul class="stack">
@@ -26,12 +26,14 @@
         {% endif %}
       </article>
 
-      <article class="card">
+      <article class="card alerts-history-card">
         <div class="card-title-row">
           <h2>Recent Alert History</h2>
-          <button type="button" class="inline-ask" data-question="Summarize recent alert patterns and whether they suggest a recurring problem." data-submit="true" data-source="inline_card" data-section="recent_alert_history" data-prompt-key="alerts_recent_history">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Summarize recent alert patterns and whether they suggest a recurring problem." data-submit="true" data-source="inline_card" data-section="recent_alert_history" data-prompt-key="alerts_recent_history">Ask Plex AI</button>
         </div>
+        <p class="secondary-text">Showing the {{ recent_alert_history|length }} most recent alerts.</p>
         {% if recent_alert_history %}
+        <div class="alert-history-wrap">
         <ul class="stack">
           {% for alert in recent_alert_history %}
           <li>
@@ -43,6 +45,7 @@
           </li>
           {% endfor %}
         </ul>
+        </div>
         {% else %}
         <p class="empty">No recent alert history.</p>
         {% endif %}

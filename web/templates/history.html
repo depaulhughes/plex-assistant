@@ -6,10 +6,11 @@
     <section class="card">
       <div class="card-title-row">
         <h2>Recent Diagnosis Events</h2>
-        <button type="button" class="inline-ask" data-question="Summarize the recent diagnosis pattern and what it suggests." data-submit="true" data-source="inline_card" data-section="history_pattern" data-prompt-key="history_recent_diagnosis_events">Ask Plex</button>
+        <button type="button" class="inline-ask" data-question="Summarize the recent diagnosis pattern and what it suggests." data-submit="true" data-source="inline_card" data-section="history_pattern" data-prompt-key="history_recent_diagnosis_events">Ask Plex AI</button>
       </div>
       {% if recent_history %}
-      <div class="table-wrap">
+      <p class="secondary-text">Showing the {{ recent_history|length }} most recent events.</p>
+      <div class="table-wrap history-table-wrap">
         <table>
           <thead>
             <tr>

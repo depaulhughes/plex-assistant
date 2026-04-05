@@ -3,7 +3,7 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from actions import build_action_plan
-from alerts import evaluate_alerts, load_recent_alert_history, log_alerts
+from alerts import current_active_alerts, evaluate_alerts, load_recent_alert_history, log_alerts
 from clients import (
     build_tautulli_session_map,
     get_plex_sessions,
@@ -128,7 +128,9 @@ def build_state() -> dict:
 
     recent_alert_history = load_recent_alert_history()
     state["recent_alert_history"] = recent_alert_history[-20:]
-    state["alerts"] = evaluate_alerts(state, state["history_summary"], recent_alert_history)
+    state["alerts"] = current_active_alerts(state, state["history_summary"])
+    emitted_alerts = evaluate_alerts(state, state["history_summary"], recent_alert_history)
+    state["emitted_alerts"] = emitted_alerts
 
     state["manager_summary"] = build_manager_summary(
         state,
@@ -144,8 +146,8 @@ def build_state() -> dict:
     if logged_event is not None:
         state["history"]["last_logged_event"] = logged_event
 
-    if state["alerts"]:
-        log_alerts(state["alerts"])
+    if emitted_alerts:
+        log_alerts(emitted_alerts)
 
     return state
 

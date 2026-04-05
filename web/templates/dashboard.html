@@ -27,7 +27,7 @@
         </div>
         <p class="metric">{{ manager_summary.service_health|default("unknown") }}</p>
         <div class="badges">
-          <span class="badge severity-{{ diagnosis_presentation.severity|default('info') }}">Severity: {{ diagnosis_presentation.severity_display_label|default("Low") }}</span>
+          <span class="badge severity-badge severity-{{ dashboard_view.severity_level_class }}">Severity: {{ diagnosis_presentation.severity_display_label|default("Low") }}</span>
           {% if diagnosis_presentation.scope and diagnosis_presentation.scope != "unknown" %}
           <span class="badge scope">{{ diagnosis_presentation.scope|default("unknown") }}</span>
           {% endif %}
@@ -39,13 +39,21 @@
           <h2>Active Sessions</h2>
         </div>
         <p class="metric">{{ plex.active_sessions|default(0) }}</p>
-        <p>{{ plex.transcodes|default(0) }} transcode(s), {{ plex.direct_plays|default(0) }} direct play(s)</p>
+        <div class="session-summary-copy">
+          <p>{{ plex.transcodes|default(0) }} transcode(s), {{ plex.direct_plays|default(0) }} direct play(s)</p>
+          {% if dashboard_view.devices_in_use_label %}
+          <p class="secondary-text compact-device-line">Devices in use: {{ dashboard_view.devices_in_use_label }}</p>
+          {% endif %}
+          {% if dashboard_view.endpoints_in_use_label %}
+          <p class="secondary-text compact-device-line">Endpoints: {{ dashboard_view.endpoints_in_use_label }}</p>
+          {% endif %}
+        </div>
       </article>
 
       <article class="card diagnosis-card">
         <div class="card-title-row">
           <h2>Primary Diagnosis</h2>
-          <button type="button" class="inline-ask" data-question="Explain the current diagnosis and why it fits this telemetry." data-submit="true" data-source="inline_card" data-section="primary_diagnosis" data-prompt-key="home_primary_diagnosis">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Explain the current diagnosis and why it fits this telemetry." data-submit="true" data-source="inline_card" data-section="primary_diagnosis" data-prompt-key="home_primary_diagnosis">Ask Plex AI</button>
         </div>
         <p class="metric diagnosis-title">{{ dashboard_view.diagnosis_label|default("unknown") }}</p>
         {% if dashboard_view.supporting_text %}
@@ -53,12 +61,12 @@
         {% endif %}
         {% if dashboard_view.contributing_factors %}
         <div class="factor-chips">
-          {% for item in dashboard_view.contributing_factors %}
+        {% for item in dashboard_view.contributing_factors %}
           <span class="chip">{{ item }}</span>
           {% endfor %}
         </div>
         {% else %}
-        <p class="secondary-text">No additional contributing factors are surfaced right now.</p>
+        <p class="secondary-text">No major contributing factors are standing out right now.</p>
         {% endif %}
       </article>
 
@@ -74,7 +82,7 @@
       <article class="card">
         <div class="card-title-row">
           <h2>Playback Quality</h2>
-          <button type="button" class="inline-ask" data-question="Why is playback quality scored this way right now?" data-submit="true" data-source="inline_card" data-section="playback_quality" data-prompt-key="home_playback_quality">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Why is playback quality scored this way right now?" data-submit="true" data-source="inline_card" data-section="playback_quality" data-prompt-key="home_playback_quality">Ask Plex AI</button>
         </div>
         <p class="metric">{{ dashboard_view.impact_score_label }} <span class="metric-inline-note">({{ dashboard_view.impact_level_label }})</span></p>
         <p class="secondary-text">{{ dashboard_view.playback_quality_note or dashboard_view.impact_driver_summary }}</p>
@@ -92,10 +100,19 @@
       <article class="card">
         <div class="card-title-row">
           <h2>Capacity Headroom</h2>
-          <button type="button" class="inline-ask" data-question="Explain current headroom and what could change it." data-submit="true" data-source="inline_card" data-section="capacity_headroom" data-prompt-key="home_capacity_headroom">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Explain current headroom and what could change it." data-submit="true" data-source="inline_card" data-section="capacity_headroom" data-prompt-key="home_capacity_headroom">Ask Plex AI</button>
         </div>
         <p class="metric">{{ dashboard_view.capacity_headroom_label }}</p>
         <p class="secondary-text">{{ dashboard_view.capacity_headroom_summary }}</p>
+        {% if dashboard_view.capacity_headroom_why %}
+        <p class="muted"><strong>Why headroom is here:</strong> {{ dashboard_view.capacity_headroom_why }}</p>
+        {% endif %}
+        {% if dashboard_view.capacity_headroom_next_tightener %}
+        <p class="muted"><strong>What would tighten it next:</strong> {{ dashboard_view.capacity_headroom_next_tightener }}</p>
+        {% endif %}
+        {% if dashboard_view.capacity_headroom_improver %}
+        <p class="muted"><strong>What would improve it:</strong> {{ dashboard_view.capacity_headroom_improver }}</p>
+        {% endif %}
       </article>
     </section>
 
@@ -103,7 +120,7 @@
     <section class="card">
       <div class="card-title-row">
         <h2>Recent Playback Note</h2>
-        <button type="button" class="inline-ask" data-question="What happened recently, and how much delivery risk remains?" data-submit="true" data-source="inline_card" data-section="recent_playback_note" data-prompt-key="home_recent_playback_note">Ask Plex</button>
+        <button type="button" class="inline-ask" data-question="What happened recently, and how much delivery risk remains?" data-submit="true" data-source="inline_card" data-section="recent_playback_note" data-prompt-key="home_recent_playback_note">Ask Plex AI</button>
       </div>
       <p>{{ dashboard_view.playback_quality_note }}</p>
     </section>
@@ -118,7 +135,7 @@
     <article class="card home-alerts-card">
       <div class="card-title-row">
         <h2>Active Alerts</h2>
-        <button type="button" class="inline-ask" data-question="Summarize what the current alert state means." data-submit="true" data-source="inline_card" data-section="active_alerts" data-prompt-key="home_active_alerts">Ask Plex</button>
+        <button type="button" class="inline-ask" data-question="Summarize what the current alert state means." data-submit="true" data-source="inline_card" data-section="active_alerts" data-prompt-key="home_active_alerts">Ask Plex AI</button>
       </div>
       {% if alerts %}
       <ul class="stack">

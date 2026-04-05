@@ -11,6 +11,18 @@
           if (savedTheme === "light" || savedTheme === "dark") {
             document.documentElement.dataset.theme = savedTheme;
           }
+          if (window.sessionStorage.getItem("plex-assistant-clear-scroll-pending") === "true") {
+            document.documentElement.dataset.clearRestorePending = "true";
+            if ("scrollRestoration" in window.history) {
+              window.history.scrollRestoration = "manual";
+            }
+          }
+          if (window.sessionStorage.getItem("plex-assistant-ask-scroll-pending") === "true") {
+            document.documentElement.dataset.askRestorePending = "true";
+            if ("scrollRestoration" in window.history) {
+              window.history.scrollRestoration = "manual";
+            }
+          }
         } catch (error) {
           console.warn("Theme preference unavailable", error);
         }
@@ -18,7 +30,15 @@
     </script>
     <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v={{ static_asset_version }}" />
   </head>
-  <body data-auto-refresh-seconds="{% if active_path == '/trends' %}0{% else %}20{% endif %}"{% if scroll_target %} data-scroll-target="{{ scroll_target }}"{% endif %}>
+  <body
+    data-auto-refresh-seconds="{% if active_path == '/trends' %}0{% else %}20{% endif %}"
+    data-ask-active="{% if ask_active %}true{% else %}false{% endif %}"
+    {% if scroll_target %} data-scroll-target="{{ scroll_target }}"{% endif %}
+  >
+    <div class="ask-mobile-loading-pill" id="ask-mobile-loading-pill" aria-live="polite" hidden>
+      <span class="ask-mobile-loading-spinner" aria-hidden="true"></span>
+      <span>Preparing answer...</span>
+    </div>
     <header class="topbar">
       <div class="brand">
         <h1><a href="/">Plex Assistant</a></h1>

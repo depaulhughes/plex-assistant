@@ -410,23 +410,115 @@ def _manager_user_impact_label(facts: dict, severity: str, scope: str, playback_
     return "none"
 
 
+def _manager_load_profile(state: dict, facts: dict) -> dict:
+    system = state.get("system", {})
+    plex = state.get("plex", {})
+    active_sessions = int(plex.get("active_sessions", 0) or 0)
+    transcodes = int(plex.get("transcodes", 0) or 0)
+
+    upload_limit = float(UPLOAD_LIMIT_MBPS or 0) if UPLOAD_LIMIT_MBPS else 0
+    current_upload_percent = (
+        (float(system.get("total_upload_mbps", 0) or 0) / upload_limit) * 100
+        if upload_limit > 0
+        else 0
+    )
+    avg_upload_percent = (
+        (float(facts.get("recent_upload_avg_mbps", 0) or 0) / upload_limit) * 100
+        if upload_limit > 0
+        else 0
+    )
+
+    if active_sessions == 0 and current_upload_percent < 10 and avg_upload_percent < 10:
+        tier = "idle"
+    elif active_sessions <= 1 and transcodes <= 1 and current_upload_percent < 20 and avg_upload_percent < 25:
+        tier = "light"
+    elif active_sessions <= 2 and current_upload_percent < 60 and avg_upload_percent < 65:
+        tier = "moderate"
+    else:
+        tier = "high"
+
+    return {
+        "tier": tier,
+        "active_sessions": active_sessions,
+        "transcodes": transcodes,
+        "current_upload_percent": current_upload_percent,
+        "avg_upload_percent": avg_upload_percent,
+    }
+
+
 def _manager_action_urgency(
     severity: str,
     scope: str,
     escalation_needed: bool,
     facts: dict,
+    load_profile: Optional[dict] = None,
     playback_quality: Optional[dict] = None,
 ) -> str:
     playback_quality = playback_quality or {}
+    load_profile = load_profile or {}
+    load_tier = load_profile.get("tier", "moderate")
+    low_load = load_tier in {"idle", "light"}
+    moderate_or_higher_load = load_tier in {"moderate", "high"}
+
     if severity == "critical" or escalation_needed:
         return "act_now"
     if severity == "warning" and (facts.get("buffering_session_count", 0) > 0 or scope in {"system_wide", "service_wide"}):
         return "investigate_now"
-    if playback_quality.get("recent_window_active") or playback_quality.get("recurrence_risk_label") in {"Guarded", "High"}:
+    if facts.get("buffering_detected") or facts.get("sustained_upload_high"):
+        return "investigate_now"
+    if low_load and not playback_quality.get("recovered") and not playback_quality.get("recent_window_active"):
+        return "low" if load_tier == "light" and load_profile.get("active_sessions", 0) > 0 else "none"
+    if low_load and facts.get("buffering_session_count", 0) == 0 and not facts.get("buffering_risk_detected"):
+        return "low" if load_tier == "light" and load_profile.get("active_sessions", 0) > 0 else "none"
+    if moderate_or_higher_load and (
+        playback_quality.get("recent_window_active")
+        or playback_quality.get("recurrence_risk_label") in {"Guarded", "High"}
+    ):
         return "watch"
-    if severity == "warning" or facts.get("buffering_risk_detected"):
+    if severity == "warning" and moderate_or_higher_load:
+        return "watch"
+    if facts.get("buffering_risk_detected") and moderate_or_higher_load:
         return "watch"
     return "none"
+
+
+def _manager_signal_scaling(state: dict, facts: dict, playback_quality: Optional[dict] = None) -> dict:
+    playback_quality = playback_quality or {}
+    load_profile = _manager_load_profile(state, facts)
+    load_tier = load_profile.get("tier", "moderate")
+    low_load = load_tier in {"idle", "light"}
+
+    raw_confidence = playback_quality.get("delivery_confidence_label", "High")
+    raw_risk = playback_quality.get("recurrence_risk_label", "Low")
+    confidence_summary = playback_quality.get("delivery_confidence_summary", "")
+    risk_summary = playback_quality.get("recurrence_summary", "")
+
+    if facts.get("buffering_detected") or facts.get("buffering_session_count", 0) > 0 or facts.get("sustained_upload_high"):
+        confidence_label = raw_confidence
+        risk_label = raw_risk
+    elif low_load:
+        confidence_label = "High"
+        risk_label = "Low"
+        if playback_quality.get("recent_window_active") or raw_risk in {"Guarded", "High", "Watch"}:
+            confidence_summary = "Playback is currently stable under light load. Recent instability remains background context rather than an active delivery concern."
+            risk_summary = "Recent history is still worth remembering, but current load is too light to suggest meaningful near-term recurrence."
+        else:
+            confidence_summary = "Playback is currently stable and delivery confidence is high."
+            risk_summary = "No strong sign of near-term recurrence is currently present."
+    elif load_tier == "moderate":
+        confidence_label = "Watch" if raw_confidence in {"Watch", "Guarded", "Low"} else raw_confidence
+        risk_label = "Watch" if raw_risk in {"Watch", "Guarded"} else raw_risk
+    else:
+        confidence_label = raw_confidence
+        risk_label = raw_risk
+
+    return {
+        "load_profile": load_profile,
+        "delivery_confidence_label": confidence_label,
+        "delivery_confidence_summary": confidence_summary,
+        "recurrence_risk_label": risk_label,
+        "recurrence_summary": risk_summary,
+    }
 
 
 def _manager_trend_judgment(state_change: dict, facts: dict, playback_quality: Optional[dict] = None) -> str:
@@ -645,6 +737,11 @@ def _instability_memory_profile(state: dict) -> dict:
         else:
             continue
 
+        if event_facts.get("startup_spike_expected"):
+            # Preserve awareness that a startup burst happened, but do not let a
+            # normal initial buffer-fill pattern behave like real instability.
+            base_weight *= 0.18
+
         if event_facts.get("burst_upload_saturation"):
             base_weight += 0.15
             burst_events += 1
@@ -711,6 +808,7 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
     last_minutes = memory.get("last_minutes_since_instability")
     recovered = memory.get("memory_active") and not facts.get("buffering_detected", False)
     memory_pattern = memory.get("memory_pattern", "none")
+    startup_spike_expected = bool(facts.get("startup_spike_expected"))
 
     upload_limit = float(UPLOAD_LIMIT_MBPS or 0) if UPLOAD_LIMIT_MBPS else 0
     avg_upload_saturation_percent = (
@@ -730,6 +828,12 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
         and 35 <= avg_upload_saturation_percent < 75
         and not sustained_wan_constraint
     )
+    current_constraints_active = bool(
+        facts.get("buffering_detected", False)
+        or sustained_wan_constraint
+    )
+    very_low_current_utilization = current_upload_saturation_percent < 15 and avg_upload_saturation_percent < 20
+    light_single_session = active_sessions <= 1
 
     score = 100
     if active_sessions == 0:
@@ -755,6 +859,11 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
         # vulnerable to short stalls when upload briefly spikes.
         score -= 4 if avg_upload_saturation_percent >= 60 else 2
 
+    if startup_spike_expected:
+        # Startup buffer fill should be acknowledged, but not treated like a
+        # meaningful delivery degradation when it settles quickly.
+        score += 3
+
     if facts.get("buffering_detected", False):
         score -= 38
     if recent_buffer_count > 0 or memory_pattern in {"clustered", "recurring"} or sustained_wan_constraint:
@@ -774,6 +883,9 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
         or (recent_buffer_count > 0 and facts.get("upload_is_bursty"))
         or memory_pattern in {"clustered", "recurring"}
     )
+    if startup_spike_expected and recent_buffer_count == 0 and not facts.get("buffering_detected", False):
+        fragile_delivery = False
+
     recurrence_risk = "low"
     if facts.get("buffering_detected", False) and fragile_delivery:
         recurrence_risk = "high"
@@ -786,6 +898,9 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
     elif memory_pattern == "blip":
         recurrence_risk = "watch"
 
+    if startup_spike_expected and recent_buffer_count == 0 and not sustained_wan_constraint:
+        recurrence_risk = "low"
+
     if (
         facts.get("buffering_detected")
         and not sustained_wan_constraint
@@ -797,6 +912,8 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
         quality_label = "Recovered, recurrence risk remains"
     elif not facts.get("buffering_detected", False) and facts.get("upload_is_bursty") and avg_upload_saturation_percent >= 60 and not burst_only_upload:
         quality_label = "Stable now, but burst-sensitive"
+    elif startup_spike_expected:
+        quality_label = "Stable after startup spike"
     elif score >= 92:
         quality_label = "Excellent"
     elif score >= 78:
@@ -806,21 +923,31 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
     else:
         quality_label = "Degraded"
 
-    if facts.get("buffering_detected", False) and fragile_delivery:
+    if very_low_current_utilization and light_single_session and not current_constraints_active:
+        headroom_label = "Comfortable"
+    elif facts.get("buffering_detected", False) and fragile_delivery:
         headroom_label = "Limited"
-    elif recovered and recurrence_risk in {"guarded", "high"}:
-        headroom_label = "Usable but fragile"
-    elif avg_upload_saturation_percent >= 85 or sustained_wan_constraint:
+    elif avg_upload_saturation_percent >= 85 or current_upload_saturation_percent >= 90 or sustained_wan_constraint:
         headroom_label = "Tight"
-    elif recent_buffer_count > 0 or avg_upload_saturation_percent >= 70 or (sustained_wan_constraint and avg_upload_saturation_percent >= 60):
+    elif (
+        avg_upload_saturation_percent >= 70
+        or current_upload_saturation_percent >= 75
+        or (recent_buffer_count > 0 and avg_upload_saturation_percent >= 55)
+        or (active_sessions >= 2 and avg_upload_saturation_percent >= 50)
+    ):
         headroom_label = "Guarded"
-    elif avg_upload_saturation_percent >= 50:
+    elif avg_upload_saturation_percent >= 35 or current_upload_saturation_percent >= 40 or active_sessions >= 2:
         headroom_label = "Moderate"
     else:
         headroom_label = "Comfortable"
 
+    if startup_spike_expected and recent_buffer_count == 0 and not sustained_wan_constraint:
+        headroom_label = "Comfortable"
+
     if facts.get("buffering_detected", False):
         note = "Playback is currently buffering and delivery confidence is reduced."
+    elif startup_spike_expected:
+        note = "Initial upload spike detected during stream startup; delivery has since stabilized."
     elif average_serviceable_but_spiky and recent_buffer_count > 0:
         note = "Average upload is serviceable, but short spikes are causing intermittent delivery instability."
         if recovered:
@@ -847,11 +974,17 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
         note += " Playback recovered, but recent WAN tightness suggests buffering may recur."
     elif not facts.get("buffering_detected", False) and recurrence_risk == "guarded" and active_sessions > 0:
         note = "Playback is currently stable, but recent burst behavior suggests renewed buffering is plausible if conditions hold."
-    elif burst_only_upload and recent_buffer_count == 0 and not facts.get("buffering_detected", False):
+    elif burst_only_upload and recent_buffer_count == 0 and not facts.get("buffering_detected", False) and not startup_spike_expected:
         note = "Playback is currently stable. Short upload spikes were observed, but they do not look like a sustained delivery constraint."
 
-    if headroom_label == "Comfortable":
-        headroom_summary = "Current WAN delivery margin looks comfortable for the present playback load."
+    if startup_spike_expected:
+        headroom_summary = "Startup buffer-fill traffic settled quickly, and current WAN delivery margin looks normal."
+    elif headroom_label == "Comfortable":
+        headroom_summary = (
+            "Current WAN delivery margin looks comfortable for the present playback load."
+            if not memory.get("memory_active")
+            else "Current WAN delivery margin looks comfortable now, even though recent behavior still warrants light caution."
+        )
     elif headroom_label == "Moderate":
         headroom_summary = "Average WAN load is serviceable, but additional heavy playback would reduce margin."
     elif headroom_label == "Guarded":
@@ -860,14 +993,14 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
             if average_serviceable_but_spiky
             else "Playback is mostly stable now, but recent upload behavior suggests reduced delivery margin."
         )
-    elif headroom_label == "Usable but fragile":
-        headroom_summary = "Usable but fragile headroom remains. Similar upload spikes could trigger renewed playback instability."
     elif headroom_label == "Limited":
         headroom_summary = "Current headroom is limited. Additional heavy WAN playback could trigger more buffering."
     else:
         headroom_summary = "Current margin is tight enough that additional load could quickly degrade playback."
 
-    if recurrence_risk == "high":
+    if startup_spike_expected:
+        recurrence_summary = "The recent spike looks consistent with normal stream startup rather than an ongoing WAN constraint."
+    elif recurrence_risk == "high":
         recurrence_summary = "Recurrence risk is elevated because buffering or clustered instability is occurring under tight or volatile WAN delivery conditions."
     elif recurrence_risk == "guarded":
         recurrence_summary = (
@@ -880,7 +1013,9 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
     else:
         recurrence_summary = "No strong sign of near-term recurrence is currently present."
 
-    if (
+    if startup_spike_expected and current_diagnosis == "none_detected":
+        delivery_diagnosis_label = "Startup buffer-fill spike stabilized"
+    elif (
         (recovered or recent_buffer_count > 0 or memory_pattern in {"clustered", "recurring"})
         and recurrence_risk in {"guarded", "high"}
     ):
@@ -900,7 +1035,9 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
         score_drivers.append("recent buffering")
     elif recent_instability_count > 0:
         score_drivers.append("recent instability memory")
-    if facts.get("upload_is_bursty"):
+    if startup_spike_expected:
+        score_drivers.append("startup buffer fill")
+    elif facts.get("upload_is_bursty"):
         score_drivers.append("upload burstiness")
     if sustained_wan_constraint or avg_upload_saturation_percent >= 70:
         score_drivers.append("near-cap WAN margin")
@@ -937,6 +1074,9 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
     elif recurrence_risk == "watch":
         delivery_confidence = "Watch"
         delivery_confidence_summary = "Playback is currently serviceable, but recent behavior suggests delivery confidence is not fully settled."
+    elif startup_spike_expected:
+        delivery_confidence = "High"
+        delivery_confidence_summary = "The recent upload burst fits normal startup buffer-fill behavior and is not currently behaving like sustained delivery pressure."
     elif burst_only_upload:
         delivery_confidence = "High"
         delivery_confidence_summary = "Playback is currently stable. Upload is bursty, but the pattern does not currently look sustained enough to threaten delivery."
@@ -960,6 +1100,7 @@ def _recent_playback_quality(state: dict, current_diagnosis: str) -> dict:
         "memory_pattern": memory_pattern,
         "delivery_confidence_label": delivery_confidence,
         "delivery_confidence_summary": delivery_confidence_summary,
+        "startup_spike_expected": startup_spike_expected,
         "recurrence_risk_label": recurrence_risk.capitalize(),
         "recurrence_summary": recurrence_summary,
         "score_driver_items": score_drivers,
@@ -1005,6 +1146,8 @@ def build_manager_summary(
     scope = diagnosis_presentation.get("scope", issue_metadata.get("scope", "unknown"))
     recent_issue = _recent_issue_context(state, diagnosis)
     playback_quality = _recent_playback_quality(state, diagnosis)
+    manager_signal_view = _manager_signal_scaling(state, facts, playback_quality)
+    load_profile = manager_signal_view.get("load_profile", {})
 
     if severity == "critical":
         service_health = "Critical"
@@ -1082,7 +1225,7 @@ def build_manager_summary(
     )
     confidence = diagnosis_presentation.get("confidence", issue_metadata.get("confidence", "low"))
     user_impact = _manager_user_impact_label(facts, severity, scope, playback_quality)
-    action_urgency = _manager_action_urgency(severity, scope, escalation_needed, facts, playback_quality)
+    action_urgency = _manager_action_urgency(severity, scope, escalation_needed, facts, load_profile, playback_quality)
     trend_judgment = _manager_trend_judgment(state_change, facts, playback_quality)
     why_not_worse = _manager_why_not_worse(facts, state.get("system", {}), structured_diagnosis)
     escalation_triggers = _manager_escalation_triggers(action_plan, scope)
@@ -1148,12 +1291,15 @@ def build_manager_summary(
         "trend_judgment": trend_judgment,
         "recommendation_ladder": recommendation_ladder,
         "impact_breakdown": impact_breakdown,
-        "recurrence_risk_label": playback_quality.get("recurrence_risk_label", "Low"),
-        "recurrence_summary": playback_quality.get("recurrence_summary", ""),
+        "recurrence_risk_label": manager_signal_view.get("recurrence_risk_label", playback_quality.get("recurrence_risk_label", "Low")),
+        "recurrence_summary": manager_signal_view.get("recurrence_summary", playback_quality.get("recurrence_summary", "")),
         "recent_issue_active": recent_issue.get("recent_issue_active", False),
         "recent_issue_stage": recent_issue.get("recent_issue_stage"),
         "minutes_since_recent_issue": recent_issue.get("minutes_since_recent_issue"),
         "recent_playback_note": recent_issue.get("recent_playback_note", ""),
+        "manager_delivery_confidence_label": manager_signal_view.get("delivery_confidence_label", playback_quality.get("delivery_confidence_label", "High")),
+        "manager_delivery_confidence_summary": manager_signal_view.get("delivery_confidence_summary", playback_quality.get("delivery_confidence_summary", "")),
+        "load_tier": load_profile.get("tier", "moderate"),
         "playback_quality": playback_quality,
     }
 

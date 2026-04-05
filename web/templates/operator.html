@@ -12,12 +12,12 @@
       </div>
       <div class="manager-summary-grid">
         <div class="manager-summary-item">
-          <span class="snapshot-label">System impact</span>
-          <span class="snapshot-value">{{ operator_view.impact_score_label }} <span class="metric-inline-note">({{ operator_view.impact_level_label }})</span></span>
+          <span class="snapshot-label">Network impact</span>
+          <span class="snapshot-value">{{ operator_view.network_impact_label }}</span>
         </div>
         <div class="manager-summary-item">
-          <span class="snapshot-label">Capacity headroom</span>
-          <span class="snapshot-value">{{ operator_view.capacity_headroom_label }}</span>
+          <span class="snapshot-label">Delivery headroom</span>
+          <span class="snapshot-value">{{ operator_view.delivery_headroom_label }}</span>
         </div>
         <div class="manager-summary-item">
           <span class="snapshot-label">Primary diagnosis</span>
@@ -47,7 +47,7 @@
       {% if operator_view.delivery_confidence_label and operator_view.delivery_confidence_label != "High" %}
       <p class="secondary-text"><strong>Delivery confidence:</strong> {{ operator_view.delivery_confidence_label }}. {{ operator_view.delivery_confidence_summary }}</p>
       {% endif %}
-      <p class="secondary-text"><strong>Capacity note:</strong> {{ operator_view.capacity_headroom_summary }}</p>
+      <p class="secondary-text"><strong>Delivery note:</strong> {{ operator_view.delivery_headroom_summary }}</p>
       {% if operator_view.recurrence_risk_label and operator_view.recurrence_risk_label != "Low" %}
       <p class="secondary-text"><strong>Recurrence risk:</strong> {{ operator_view.recurrence_risk_label }}. {{ operator_view.recurrence_summary }}</p>
       {% endif %}
@@ -57,7 +57,7 @@
       <article class="card">
         <div class="card-title-row">
           <h2>{% if operator_view.observational_mode %}System Behavior{% else %}System Mechanics{% endif %}</h2>
-          <button type="button" class="inline-ask" data-question="Explain the current system mechanics and the main bottleneck." data-submit="true" data-source="inline_card" data-section="system_mechanics" data-prompt-key="operator_system_mechanics">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Explain the current system mechanics and the main bottleneck." data-submit="true" data-source="inline_card" data-section="system_mechanics" data-prompt-key="operator_system_mechanics">Ask Plex AI</button>
         </div>
         {% if operator_view.observational_mode %}
         <ul class="stack">
@@ -75,7 +75,7 @@
       <article class="card">
         <div class="card-title-row">
           <h2>{% if operator_view.observational_mode %}Resource State{% else %}Resource Pressure Analysis{% endif %}</h2>
-          <button type="button" class="inline-ask" data-question="Which constraint matters most right now and why?" data-submit="true" data-source="inline_card" data-section="resource_pressure_analysis" data-prompt-key="operator_resource_pressure">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Which constraint matters most right now and why?" data-submit="true" data-source="inline_card" data-section="resource_pressure_analysis" data-prompt-key="operator_resource_pressure">Ask Plex AI</button>
         </div>
         {% if operator_view.resource_pressure_analysis %}
         <ul class="stack">
@@ -89,15 +89,17 @@
       </article>
     </section>
 
+    {% if operator_view.observational_mode %}
+    <section class="card">
+      <h2>No active issue to investigate</h2>
+      <p class="empty">{{ operator_view.healthy_observational_summary }}</p>
+    </section>
+    {% else %}
     <section class="grid grid-2">
       <article class="card">
-        {% if operator_view.observational_mode %}
-        <h2>No active issue to investigate</h2>
-        <p class="empty">No immediate failure risks or diagnostic follow-up steps are indicated under the current healthy load.</p>
-        {% else %}
         <div class="card-title-row">
           <h2>Session-Level Reasoning</h2>
-          <button type="button" class="inline-ask" data-question="Explain why this looks localized or broader." data-submit="true" data-source="inline_card" data-section="session_level_reasoning" data-prompt-key="operator_session_reasoning">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Explain why this looks localized or broader." data-submit="true" data-source="inline_card" data-section="session_level_reasoning" data-prompt-key="operator_session_reasoning">Ask Plex AI</button>
         </div>
         {% if operator_view.session_level_reasoning %}
         <ul class="stack">
@@ -108,17 +110,12 @@
         {% else %}
         <p class="empty">{{ operator_view.session_level_reasoning_empty_label }}</p>
         {% endif %}
-        {% endif %}
       </article>
 
       <article class="card">
-        {% if operator_view.observational_mode %}
-        <h2>No active issue to investigate</h2>
-        <p class="empty">No immediate failure risks are indicated under the current healthy load.</p>
-        {% else %}
         <div class="card-title-row">
           <h2>Failure Path Analysis</h2>
-          <button type="button" class="inline-ask" data-question="What would fail first if conditions worsen?" data-submit="true" data-source="inline_card" data-section="failure_path_analysis" data-prompt-key="operator_failure_path">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="What would fail first if conditions worsen?" data-submit="true" data-source="inline_card" data-section="failure_path_analysis" data-prompt-key="operator_failure_path">Ask Plex AI</button>
         </div>
         {% if operator_view.failure_path_analysis %}
         <ul class="stack">
@@ -129,24 +126,33 @@
         {% else %}
         <p class="empty">{{ operator_view.failure_path_empty_label }}</p>
         {% endif %}
-        {% endif %}
       </article>
     </section>
+    {% endif %}
 
+    {% if operator_view.observational_mode %}
+    <section class="card">
+      {% if operator_view.recent_constraints_present %}
+      <h2>Constraints Ruled Out</h2>
+      {% if operator_view.constraints_ruled_out_summary %}
+      <ul class="stack">
+        {% for item in operator_view.constraints_ruled_out_summary %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">No active issue to investigate.</p>
+      {% endif %}
+      {% else %}
+      <h2>No constraints</h2>
+      <p class="empty">No system or delivery constraints are currently impacting playback.</p>
+      {% endif %}
+    </section>
+    {% else %}
     <section class="grid grid-2">
       <article class="card">
-        <h2>{% if operator_view.observational_mode %}Constraints Ruled Out{% else %}Contextual Verification Steps{% endif %}</h2>
-        {% if operator_view.observational_mode %}
-        {% if operator_view.constraints_ruled_out_summary %}
-        <ul class="stack">
-          {% for item in operator_view.constraints_ruled_out_summary %}
-          <li>{{ item }}</li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="empty">No active issue to investigate.</p>
-        {% endif %}
-        {% elif operator_view.contextual_verification_steps %}
+        <h2>Contextual Verification Steps</h2>
+        {% if operator_view.contextual_verification_steps %}
         <ul class="stack">
           {% for item in operator_view.contextual_verification_steps %}
           <li>
@@ -174,37 +180,58 @@
         {% endif %}
       </article>
     </section>
+    {% endif %}
 
-    <section class="grid grid-2">
-      <article class="card">
-        <h2>Active Alerts</h2>
-        {% if alerts %}
-        <ul class="stack">
-          {% for alert in alerts %}
-          <li>
-            <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
-            <strong>{{ alert.title }}</strong>
-            <div class="muted">{{ alert.message }}</div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="empty">No active alerts.</p>
-        {% endif %}
-      </article>
-
-      <article class="card">
-        <h2>Recent Trend Summary</h2>
-        <p><strong>Events last 24h:</strong> {{ history_summary.events_last_24h|default(0) }}</p>
-        <p><strong>Warning or higher:</strong> {{ history_summary.warning_or_higher_last_24h|default(0) }}</p>
-        <p><strong>Top diagnosis:</strong> {{ history_summary.top_diagnosis_last_24h|default("none") }}</p>
-        <p><strong>Top affected client:</strong> {{ history_summary.top_affected_client_last_24h|default("none") }}</p>
-      </article>
+    <section class="card">
+      <h2>Recent Trend Summary</h2>
+      <p>{{ operator_view.trend_insight }}</p>
+      <div class="manager-summary-grid manager-breakdown-grid">
+        <div class="manager-summary-item">
+          <span class="snapshot-label">Pattern</span>
+          <span class="snapshot-value">{{ operator_view.trend_pattern }}</span>
+        </div>
+        <div class="manager-summary-item">
+          <span class="snapshot-label">Most associated client</span>
+          <span class="snapshot-value">{{ operator_view.trend_associated_client }}</span>
+        </div>
+        <div class="manager-summary-item">
+          <span class="snapshot-label">Common trigger</span>
+          <span class="snapshot-value">{{ operator_view.trend_common_trigger }}</span>
+        </div>
+        <div class="manager-summary-item">
+          <span class="snapshot-label">Direction</span>
+          <span class="snapshot-value">{{ operator_view.trend_direction }}</span>
+        </div>
+      </div>
+      {% if operator_view.trend_support %}
+      <p class="secondary-text">{{ operator_view.trend_support }}</p>
+      {% endif %}
     </section>
 
     {% include "sessions_partial.html" %}
   </div>
 
-  {% include "_copilot_panel.html" %}
+  <div class="copilot-rail">
+    <article class="card home-alerts-card">
+      <div class="card-title-row">
+        <h2>Active Alerts</h2>
+      </div>
+      {% if alerts %}
+      <ul class="stack">
+        {% for alert in alerts %}
+        <li>
+          <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+          <strong>{{ alert.title }}</strong>
+          <div class="muted">{{ alert.message }}</div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">No active alerts.</p>
+      {% endif %}
+    </article>
+
+    {% include "_copilot_panel.html" %}
+  </div>
 </section>
 {% endblock %}

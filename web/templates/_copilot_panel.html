@@ -2,11 +2,11 @@
   <section class="card ask-card copilot-card">
     <div class="copilot-header">
       <div>
-        <h2>Ask Plex</h2>
+        <h2>Ask Plex AI</h2>
         <p class="secondary-text">{{ ask_helper_text }}</p>
       </div>
       {% if ask_memory_turns %}
-      <form action="/ask/clear#ask-plex" method="post" class="inline-form">
+      <form action="/ask/clear" method="post" class="inline-form ask-clear-form">
         <input type="hidden" name="page_context" value="{{ page_context }}">
         <button type="submit" class="secondary-button">Clear</button>
       </form>
@@ -19,7 +19,7 @@
     </div>
     {% endif %}
 
-    <form action="/ask#ask-plex" method="post" class="ask-form" id="ask-form">
+    <form action="/ask" method="post" class="ask-form" id="ask-form" data-scroll-target="ask-result" data-restore-on-submit="true">
       <input type="hidden" name="page_context" value="{{ page_context }}">
       <input type="hidden" name="ask_source" value="{{ ask_source|default('panel') }}">
       <input type="hidden" name="ask_section" value="{{ ask_section|default('') }}">
@@ -54,7 +54,7 @@
     </form>
 
     {% if ask_answer %}
-    <div class="ask-response">
+    <div class="ask-response" id="ask-result">
       <div class="response-header">
         <strong>Answer</strong>
         <div class="response-meta">
@@ -76,7 +76,20 @@
         {% endif %}
       </div>
       {% endif %}
+      {% if ask_answer_sections %}
+      <div class="response-sections">
+        {% for section in ask_answer_sections %}
+        <section class="response-section">
+          {% if section.title %}
+          <div class="response-section-title">{{ section.title }}</div>
+          {% endif %}
+          <pre class="response-text">{{ section.body }}</pre>
+        </section>
+        {% endfor %}
+      </div>
+      {% else %}
       <pre class="response-text">{{ ask_answer }}</pre>
+      {% endif %}
       {% if ask_follow_ups %}
       <div class="ask-follow-up-block">
         <div class="muted ask-follow-up-label">Suggested follow-ups</div>
@@ -89,7 +102,7 @@
       {% endif %}
     </div>
     {% elif ask_error %}
-    <div class="ask-response ask-error">
+    <div class="ask-response ask-error" id="ask-result">
       <div class="response-header">
         <strong>Unable to answer</strong>
       </div>

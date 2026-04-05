@@ -7,6 +7,8 @@ from config import (
     ENABLE_HISTORY_LOGGING,
     HISTORY_LOG_PATH,
     HISTORY_LOOKBACK_LIMIT,
+    HISTORY_RETENTION_DAYS,
+    HISTORY_RETENTION_MAX_EVENTS,
     LOG_HEALTHY_SNAPSHOTS,
     LOG_ONLY_ON_CHANGE,
     MIN_EVENT_LOG_INTERVAL_SECONDS,
@@ -48,8 +50,45 @@ def _read_jsonl(path: str, limit: Optional[int] = None) -> list[dict]:
     return rows
 
 
+def _write_jsonl(path: str, rows: list[dict]) -> None:
+    file_path = Path(path)
+    with file_path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+
+def _prune_history_rows(rows: list[dict], now: Optional[datetime] = None) -> list[dict]:
+    if not rows:
+        return []
+
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=HISTORY_RETENTION_DAYS)
+    retained = []
+    for row in rows:
+        timestamp = _parse_timestamp(row.get("timestamp"))
+        if timestamp is None:
+            continue
+        if timestamp >= cutoff:
+            retained.append(row)
+
+    if len(retained) > HISTORY_RETENTION_MAX_EVENTS:
+        retained = retained[-HISTORY_RETENTION_MAX_EVENTS:]
+    return retained
+
+
+def _prune_history_log_file() -> list[dict]:
+    rows = _read_jsonl(HISTORY_LOG_PATH)
+    pruned_rows = _prune_history_rows(rows)
+    if pruned_rows != rows:
+        _write_jsonl(HISTORY_LOG_PATH, pruned_rows)
+    return pruned_rows
+
+
 def load_recent_history(limit: int = HISTORY_LOOKBACK_LIMIT) -> list[dict]:
-    return _read_jsonl(HISTORY_LOG_PATH, limit=limit)
+    rows = _prune_history_log_file()
+    if limit is not None:
+        return rows[-limit:]
+    return rows
 
 
 def build_issue_fingerprint_from_parts(
@@ -154,6 +193,7 @@ def build_diagnosis_event(state: dict) -> dict:
             "sustained_upload_high": facts.get("sustained_upload_high", False),
             "upload_is_bursty": facts.get("upload_is_bursty", False),
             "upload_is_stable": facts.get("upload_is_stable", False),
+            "startup_spike_expected": facts.get("startup_spike_expected", False),
             "system_wide_issue_likely": facts.get("system_wide_issue_likely", False),
             "session_specific_issue_likely": facts.get("session_specific_issue_likely", False),
             "same_content_playing_elsewhere_successfully": facts.get(
@@ -366,6 +406,8 @@ def log_diagnosis_event(state: dict, recent_history: list[dict]) -> Optional[dic
     file_path = Path(HISTORY_LOG_PATH)
     with file_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event, sort_keys=True) + "\n")
+
+    _prune_history_log_file()
 
     return event
 

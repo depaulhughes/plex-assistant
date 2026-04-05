@@ -1,6 +1,7 @@
 print("🔥 NEW NEW BUILD DEPLOYED 🔥")
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -9,7 +10,7 @@ from uuid import uuid4
 
 import requests
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -17,20 +18,25 @@ from alerts import load_recent_alert_history
 from app import answer_question_result_from_state, build_state
 from config import (
     ASK_STATE_CACHE_SECONDS,
+    ALERT_RENDER_LIMIT,
     GRAFANA_BASE_URL,
     GRAFANA_DASHBOARD_SLUG,
     GRAFANA_DASHBOARD_UID,
     GRAFANA_DEFAULT_RANGE,
     GRAFANA_PANELS,
     GRAFANA_PUBLIC_DASHBOARD_URL,
+    HISTORY_RENDER_LIMIT,
+    UPLOAD_LIMIT_MBPS,
 )
 from history import load_recent_history
 from summaries import build_history_display_event, severity_display_label
 
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_ASSET_VERSION = "20260403-ask-mobile-fix-1"
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_ASSET_VERSION = "20260404-ask-mobile-polish-2"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app = FastAPI(title="Plex Assistant UI")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -41,6 +47,7 @@ _STATE_SNAPSHOT_CACHE: Dict[str, Any] = {
     "snapshot": None,
 }
 _ASK_CONVERSATIONS: Dict[str, List[Dict[str, str]]] = {}
+_ASK_PAGE_STATE: Dict[str, Dict[str, Dict[str, Any]]] = {}
 ASK_SESSION_COOKIE = "plex_assistant_chat_session"
 MAX_ASK_MEMORY_TURNS = 4
 
@@ -53,7 +60,7 @@ PAGE_CONFIG = {
         "allow_mode_toggle": True,
         "locked_ask_mode": "",
         "locked_mode_label": "",
-        "ask_helper_text": "Use Ask Plex as a dashboard copilot for playback quality, headroom, score changes, and what to do next.",
+        "ask_helper_text": "Use Ask Plex AI as a dashboard copilot for playback quality, headroom, score changes, and what to do next.",
         "ask_placeholder": "Ask about current playback, score changes, headroom, or next steps...",
         "quick_questions": [
             "What's happening right now?",
@@ -185,6 +192,68 @@ def _safe_label(value: Any, fallback: str = "") -> str:
     return fallback
 
 
+_ASK_SECTION_HEADER_RE = re.compile(
+    r"^\s{0,3}(?:#{1,6}\s*)?(Current State|Recent Behavior|Risk\s*/\s*What Could Happen Next|Risk\s*/\s*what could happen next|What to Do)\s*:?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _render_ask_answer_sections(answer: Optional[str]) -> List[Dict[str, str]]:
+    text = str(answer or "").strip()
+    if not text:
+        return []
+
+    sections: List[Dict[str, str]] = []
+    current_title = ""
+    current_lines: List[str] = []
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        header_match = _ASK_SECTION_HEADER_RE.match(line)
+        if header_match:
+            if current_title or any(item.strip() for item in current_lines):
+                body = "\n".join(item.rstrip() for item in current_lines).strip()
+                if body or current_title:
+                    sections.append({"title": current_title or "Response", "body": body})
+            current_title = header_match.group(1).strip()
+            current_title = current_title[0].upper() + current_title[1:]
+            current_lines = []
+            continue
+        current_lines.append(line)
+
+    if current_title or any(item.strip() for item in current_lines):
+        body = "\n".join(item.rstrip() for item in current_lines).strip()
+        if body or current_title:
+            sections.append({"title": current_title or "Response", "body": body})
+
+    if len(sections) >= 2:
+        return sections
+
+    cleaned_text = _ASK_SECTION_HEADER_RE.sub(lambda match: match.group(1).strip(), text)
+    return [{"title": "", "body": cleaned_text.strip()}]
+
+
+def _severity_level_class(severity: str) -> str:
+    normalized = (severity or "").strip().lower()
+    if normalized == "critical":
+        return "high"
+    if normalized == "warning":
+        return "medium"
+    return "low"
+
+
+def _urgency_display_label(value: str) -> str:
+    normalized = (value or "").strip().lower()
+    labels = {
+        "none": "None",
+        "low": "Low",
+        "watch": "Watch",
+        "investigate_now": "Investigate",
+        "act_now": "Act",
+    }
+    return labels.get(normalized, normalized.replace("_", " ").capitalize() or "None")
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -279,6 +348,221 @@ def _display_alerts(alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return rows
 
 
+def _dashboard_device_summary(sessions: List[Dict[str, Any]]) -> str:
+    device_names: List[str] = []
+    seen: set[str] = set()
+
+    for raw_session in sessions:
+        session = _as_dict(raw_session)
+        label = _safe_label(
+            session.get("player_product")
+            or session.get("tautulli_product")
+            or session.get("tautulli_player"),
+            "",
+        ).strip()
+        if not label:
+            continue
+        normalized = label.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        device_names.append(label)
+
+    if not device_names:
+        return ""
+
+    visible_names = device_names[:3]
+    summary = ", ".join(visible_names)
+    remaining = len(device_names) - len(visible_names)
+    if remaining > 0:
+        summary += " +{} more".format(remaining)
+    return summary
+
+
+def _dashboard_endpoint_summary(sessions: List[Dict[str, Any]]) -> str:
+    endpoint_labels: List[str] = []
+
+    for raw_session in sessions:
+        session = _as_dict(raw_session)
+        device_label = _safe_label(
+            session.get("device_name")
+            or session.get("player_title")
+            or session.get("player")
+            or session.get("tautulli_player")
+            or session.get("friendly_name"),
+            "",
+        ).strip()
+        user_label = _safe_label(
+            session.get("user")
+            or session.get("username")
+            or session.get("user_title")
+            or session.get("account_name"),
+            "",
+        ).strip()
+
+        if device_label and user_label:
+            combined = "{} — {}".format(user_label, device_label)
+            endpoint_labels.append(combined if len(combined) <= 36 else device_label)
+        elif device_label:
+            endpoint_labels.append(device_label)
+        elif user_label:
+            endpoint_labels.append(user_label)
+
+    if not endpoint_labels:
+        return ""
+
+    visible_labels = endpoint_labels[:2]
+    remaining = len(endpoint_labels) - len(visible_labels)
+
+    if len(endpoint_labels) <= 3:
+        summary = ", ".join(endpoint_labels)
+    else:
+        summary = ", ".join(visible_labels)
+        if remaining > 0:
+            summary += " +{} more".format(remaining)
+
+    return summary
+
+
+def _dashboard_capacity_next_tightener(facts: Dict[str, Any], system: Dict[str, Any], plex: Dict[str, Any]) -> str:
+    active_sessions = int(plex.get("active_sessions") or 0)
+    if facts.get("sustained_upload_saturation") or facts.get("sustained_upload_high"):
+        return "Additional WAN load would tighten margin first."
+    if facts.get("upload_is_bursty"):
+        return "Renewed burstiness or another heavy remote stream would tighten margin first."
+    if active_sessions >= 2:
+        return "Another heavy stream would be the next likely margin change."
+    if float(system.get("plex_upload_mbps") or 0) > 0:
+        return "A heavier remote stream would be the next likely margin change."
+    return "New playback demand would be the next thing to watch."
+
+
+def _dashboard_capacity_summary(playback_quality: Dict[str, Any], issue_metadata: Dict[str, Any], facts: Dict[str, Any], system: Dict[str, Any], plex: Dict[str, Any]) -> str:
+    base = _safe_label(
+        playback_quality.get("headroom_summary"),
+        issue_metadata.get("capacity_headroom_summary") or "Current telemetry suggests the system is comfortably handling playback.",
+    )
+    next_tightener = _dashboard_capacity_next_tightener(facts, system, plex)
+    if next_tightener and next_tightener not in base:
+        return "{} {}".format(base.rstrip(), next_tightener)
+    return base
+
+
+def _dashboard_capacity_why(facts: Dict[str, Any], system: Dict[str, Any], plex: Dict[str, Any], playback_quality: Dict[str, Any]) -> str:
+    drivers: List[str] = []
+    upload_limit = float(UPLOAD_LIMIT_MBPS or 0)
+    total_upload = float(system.get("total_upload_mbps") or 0)
+    upload_percent = round((total_upload / upload_limit) * 100) if upload_limit > 0 else 0
+    active_sessions = int(plex.get("active_sessions") or 0)
+
+    if facts.get("sustained_upload_saturation") or facts.get("sustained_upload_high"):
+        drivers.append("upload is already running near the configured ceiling")
+    elif upload_percent >= 70:
+        drivers.append("current WAN usage is already a large share of the upload budget")
+    elif upload_percent >= 40 and total_upload > 0:
+        drivers.append("current WAN load is meaningful even though margin remains")
+
+    if active_sessions >= 2:
+        drivers.append("{} active sessions are sharing delivery margin".format(active_sessions))
+    elif active_sessions == 1 and total_upload > 0:
+        drivers.append("one active stream is currently using measurable WAN capacity")
+
+    if facts.get("upload_is_bursty") and not facts.get("sustained_upload_high"):
+        drivers.append("short upload bursts are reducing smooth-delivery cushion")
+
+    if playback_quality.get("recent_window_active") and not facts.get("buffering_detected"):
+        drivers.append("recent behavior still suggests less settled headroom than a clean steady state")
+
+    if not drivers:
+        return "Current WAN usage is modest and no strong margin constraint is standing out."
+
+    return ", ".join(drivers[:3]).capitalize() + "."
+
+
+def _dashboard_capacity_improver(facts: Dict[str, Any], system: Dict[str, Any], plex: Dict[str, Any]) -> str:
+    active_sessions = int(plex.get("active_sessions") or 0)
+
+    if facts.get("sustained_upload_saturation") or facts.get("sustained_upload_high"):
+        return "Headroom would improve if upload demand settles below the current sustained level."
+    if facts.get("upload_is_bursty"):
+        return "Headroom would improve if the current burst pattern settles into a steadier delivery rate."
+    if active_sessions >= 2:
+        return "Headroom would improve if one of the heavier active streams ends or drops to lighter demand."
+    if float(system.get("total_upload_mbps") or 0) > 0:
+        return "Headroom would improve if current WAN usage falls back from the present playback load."
+    return ""
+
+
+def _trend_insight(history_summary: Dict[str, Any], facts: Dict[str, Any], playback_quality: Dict[str, Any], diagnosis_presentation: Dict[str, Any]) -> Dict[str, str]:
+    events = int(history_summary.get("events_last_24h") or 0)
+    top_diagnosis = _safe_label(history_summary.get("top_diagnosis_last_24h"), "none")
+    top_client = _safe_label(history_summary.get("top_affected_client_last_24h"), "none")
+    warning_count = int(history_summary.get("warning_or_higher_last_24h") or 0)
+    recurrence_risk = _safe_label(playback_quality.get("recurrence_risk_label"), "Low")
+
+    if events == 0:
+        insight = "Recent history looks quiet, with no meaningful diagnosis pattern standing out."
+        support = "No notable events were logged in the last 24 hours."
+    elif recurrence_risk in {"Guarded", "High"}:
+        insight = "Recent history suggests a recurring delivery-risk pattern rather than isolated noise."
+        support = "Top diagnosis: {}. Top client: {}.".format(top_diagnosis, top_client)
+    elif facts.get("has_mixed_session_health") or diagnosis_presentation.get("scope") in {"session_specific", "client_specific"}:
+        insight = "Recent history looks mostly session-specific rather than broadly service-wide."
+        support = "Top diagnosis: {}. Most affected client: {}.".format(top_diagnosis, top_client)
+    elif warning_count > max(1, events // 2):
+        insight = "Recent history is worth watching because higher-severity events make up a meaningful share of activity."
+        support = "{} warning-or-higher event(s) in the last 24 hours.".format(warning_count)
+    else:
+        insight = "Recent history looks stable overall, with issues appearing intermittent rather than strongly worsening."
+        support = "{} event(s) logged; top diagnosis: {}.".format(events, top_diagnosis)
+
+    return {
+        "insight": insight,
+        "support": support,
+    }
+
+
+def _operator_trend_summary(history_summary: Dict[str, Any], facts: Dict[str, Any], playback_quality: Dict[str, Any], diagnosis_presentation: Dict[str, Any]) -> Dict[str, str]:
+    base = _trend_insight(history_summary, facts, playback_quality, diagnosis_presentation)
+    events = int(history_summary.get("events_last_24h") or 0)
+    top_client = _safe_label(history_summary.get("top_affected_client_last_24h"), "none")
+    top_diagnosis = _safe_label(history_summary.get("top_diagnosis_last_24h"), "none")
+    recurrence_risk = _safe_label(playback_quality.get("recurrence_risk_label"), "Low")
+    scope = _safe_label(diagnosis_presentation.get("scope"), "unknown")
+
+    if events == 0:
+        pattern = "quiet recent history"
+        direction = "stable with no recent diagnosis activity"
+    elif recurrence_risk in {"Guarded", "High"}:
+        pattern = "recurring delivery-sensitive behavior"
+        direction = "recurring and worth watching for repeat disruption"
+    elif scope in {"session_specific", "client_specific"} or facts.get("has_mixed_session_health"):
+        pattern = "mostly session-specific behavior"
+        direction = "recurring locally, not broadening into a service-wide issue"
+    elif int(history_summary.get("warning_or_higher_last_24h") or 0) > max(1, events // 2):
+        pattern = "elevated recent issue activity"
+        direction = "worth watching because recent issues are skewing more severe"
+    else:
+        pattern = "intermittent recent activity"
+        direction = "stable overall, without a strong worsening signal"
+
+    if events == 0:
+        support = "No notable events were logged in the last 24 hours."
+    elif top_client != "none":
+        support = "Most associated client: {}. Top diagnosis: {}.".format(top_client, top_diagnosis)
+    else:
+        support = "{} event(s) in the last 24 hours; top diagnosis: {}.".format(events, top_diagnosis)
+
+    return {
+        "insight": base.get("insight", ""),
+        "support": support,
+        "pattern": pattern,
+        "associated_client": top_client,
+        "common_trigger": top_diagnosis,
+        "direction": direction,
+    }
+
+
 def _display_dashboard_view(state: Dict[str, Any]) -> Dict[str, Any]:
     manager_summary = _as_dict(state.get("manager_summary"))
     diagnosis_presentation = _as_dict(state.get("diagnosis_presentation"))
@@ -287,8 +571,10 @@ def _display_dashboard_view(state: Dict[str, Any]) -> Dict[str, Any]:
     plex = _as_dict(state.get("plex"))
     system = _as_dict(state.get("system"))
     facts = _as_dict(state.get("facts"))
+    history_summary = _as_dict(state.get("history_summary"))
+    sessions = _as_list(plex.get("sessions"))
     alert_rows = _display_alerts(_as_list(state.get("alerts")))[:3]
-    session_rows = _display_sessions(_as_list(plex.get("sessions")))
+    session_rows = _display_sessions(sessions)
     severity_raw = _safe_label(diagnosis_presentation.get("severity"), "info")
     upload_limit = 41.0
     try:
@@ -300,10 +586,13 @@ def _display_dashboard_view(state: Dict[str, Any]) -> Dict[str, Any]:
 
     total_upload = float(system.get("total_upload_mbps") or 0)
     upload_saturation_percent = round((total_upload / upload_limit) * 100, 1) if upload_limit > 0 else 0
+    executive_summary = _as_dict(manager_summary.get("executive_decision_summary"))
+    trend_insight = _trend_insight(history_summary=history_summary, facts=facts, playback_quality=playback_quality, diagnosis_presentation=diagnosis_presentation)
     return {
         "service_health_label": _safe_label(manager_summary.get("service_health"), "unknown"),
         "service_health_tone": _safe_label(manager_summary.get("service_health_tone"), "healthy"),
         "severity_label": _safe_label(diagnosis_presentation.get("severity_display_label"), severity_display_label(severity_raw)),
+        "severity_level_class": _severity_level_class(severity_raw),
         "severity_class": "severity-{}".format(severity_raw),
         "scope_label": _safe_label(diagnosis_presentation.get("scope"), "unknown"),
         "confidence_label": _safe_label(diagnosis_presentation.get("confidence"), "low"),
@@ -312,9 +601,12 @@ def _display_dashboard_view(state: Dict[str, Any]) -> Dict[str, Any]:
         "capacity_headroom_label": _safe_label(playback_quality.get("headroom_label"), issue_metadata.get("capacity_headroom") or "Comfortable"),
         "impact_driver_summary": _safe_label(issue_metadata.get("impact_driver_summary"), "No meaningful playback strain is currently confirmed."),
         "capacity_headroom_summary": _safe_label(
-            playback_quality.get("headroom_summary"),
+            _dashboard_capacity_summary(playback_quality, issue_metadata, facts, system, plex),
             issue_metadata.get("capacity_headroom_summary") or "Current telemetry suggests the system is comfortably handling playback.",
         ),
+        "capacity_headroom_why": _dashboard_capacity_why(facts, system, plex, playback_quality),
+        "capacity_headroom_next_tightener": _dashboard_capacity_next_tightener(facts, system, plex),
+        "capacity_headroom_improver": _dashboard_capacity_improver(facts, system, plex),
         "diagnosis_label": _safe_label(playback_quality.get("home_diagnosis_label"), _safe_label(diagnosis_presentation.get("primary_diagnosis_label"), "unknown")),
         "supporting_text": _safe_label(playback_quality.get("note"), _safe_label(diagnosis_presentation.get("supporting_text"), "")),
         "contributing_factors": [
@@ -328,6 +620,8 @@ def _display_dashboard_view(state: Dict[str, Any]) -> Dict[str, Any]:
             _safe_label(plex.get("transcodes"), "0"),
             _safe_label(plex.get("direct_plays"), "0"),
         ),
+        "devices_in_use_label": _dashboard_device_summary(sessions),
+        "endpoints_in_use_label": _dashboard_endpoint_summary(sessions),
         "manager_impact_summary": _safe_label(manager_summary.get("impact_summary"), "No summary available."),
         "manager_diagnosis_label": _safe_label(manager_summary.get("current_diagnosis_label"), "unknown"),
         "manager_contributing_summary": _safe_label(manager_summary.get("contributing_summary"), ""),
@@ -355,8 +649,8 @@ def _display_dashboard_view(state: Dict[str, Any]) -> Dict[str, Any]:
             {"label": "Upload Saturation", "value": "{}%".format(_safe_label(upload_saturation_percent, "0"))},
             {"label": "Plex Upload", "value": "{} Mbps".format(_safe_label(system.get("plex_upload_mbps"), "0"))},
             {"label": "Total Upload", "value": "{} Mbps".format(_safe_label(system.get("total_upload_mbps"), "0"))},
-            {"label": "Active Sessions", "value": _safe_label(plex.get("active_sessions"), "0")},
-            {"label": "Transcodes", "value": _safe_label(plex.get("transcodes"), "0")},
+            {"label": "Upload Headroom", "value": _safe_label(playback_quality.get("headroom_label"), issue_metadata.get("capacity_headroom") or "Comfortable")},
+            {"label": "Action Urgency", "value": _urgency_display_label(_safe_label(executive_summary.get("action_urgency"), "none"))},
         ],
         "quick_stats_note": (
             "Current Plex delivery is stable, but recent WAN behavior still matters."
@@ -367,6 +661,8 @@ def _display_dashboard_view(state: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "alert_rows": alert_rows,
         "session_rows": session_rows,
+        "trend_insight": trend_insight.get("insight", ""),
+        "trend_support": trend_insight.get("support", ""),
     }
 
 
@@ -411,8 +707,8 @@ def _display_manager_view(state: Dict[str, Any]) -> Dict[str, Any]:
         "other_sessions_healthy_label": "Yes" if affected_scope.get("other_sessions_healthy") else "No",
         "playback_progressing_label": "Yes" if affected_scope.get("playback_progressing") else "No",
         "trend_judgment_label": _safe_label(manager_summary.get("trend_judgment"), "stable"),
-        "delivery_confidence_label": _safe_label(playback_quality.get("delivery_confidence_label"), "High"),
-        "delivery_confidence_summary": _safe_label(playback_quality.get("delivery_confidence_summary"), ""),
+        "delivery_confidence_label": _safe_label(manager_summary.get("manager_delivery_confidence_label"), _safe_label(playback_quality.get("delivery_confidence_label"), "High")),
+        "delivery_confidence_summary": _safe_label(manager_summary.get("manager_delivery_confidence_summary"), _safe_label(playback_quality.get("delivery_confidence_summary"), "")),
         "recurrence_risk_label": _safe_label(manager_summary.get("recurrence_risk_label"), "Low"),
         "recurrence_summary": _safe_label(manager_summary.get("recurrence_summary"), ""),
         "playback_quality_label": _safe_label(playback_quality.get("quality_label"), "Stable"),
@@ -499,13 +795,13 @@ def _operator_transcode_mechanics(state: Dict[str, Any]) -> str:
 
     dominant = _safe_label(issue_metadata.get("dominant_impact_factor"), "none")
     if dominant == "upload":
-        tail = "Upload is the leading live constraint, so delivery headroom matters more than compute right now and similar spikes could renew buffering."
+        tail = "Upload is the leading live constraint, so delivery headroom matters more than compute and similar spikes could renew buffering."
     elif dominant == "host_pressure":
         tail = "Host pressure is the leading live constraint, so compute headroom matters more than delivery right now."
     elif dominant == "buffering_confirmed":
         tail = "Confirmed buffering is the strongest live signal, so playback quality is the main concern right now."
     elif playback_quality.get("recurrence_risk_label") in {"Guarded", "High"}:
-        tail = "Playback is functioning now, but recent WAN tightness suggests this delivery path is still fragile under bursty upload."
+        tail = "Playback is functioning now, but recent WAN tightness still leaves this delivery path fragile."
     else:
         tail = "No buffering is confirmed, Plex CPU is {}%, and host CPU is {}%, so the current workload remains mechanically light.".format(
             _safe_label(system.get("plex_cpu_host_percent"), "0"),
@@ -529,24 +825,24 @@ def _operator_resource_analysis(state: Dict[str, Any]) -> List[str]:
     instant_upload_percent = _upload_saturation_percent(system)
     analysis = []
     analysis.append(
-        "Plex CPU is {}%, so the active playback work is currently cheap for the media engine.".format(
+        "Plex CPU is {}%, so active playback is cheap for the media engine.".format(
             _safe_label(system.get("plex_cpu_host_percent"), "0")
         )
     )
     analysis.append(
-        "Host CPU is {}%, leaving substantial processing headroom before transcoding would become compute-bound.".format(
+        "Host CPU is {}%, leaving clear processing headroom before playback would become compute-bound.".format(
             _safe_label(system.get("host_cpu_percent"), "0")
         )
     )
     if playback_quality.get("recurrence_risk_label") in {"Guarded", "High"} or upload_percent >= 70:
         analysis.append(
-            "Average upload is at about {}% of the configured ceiling, and recent delivery behavior suggests WAN headroom is fragile even though playback is currently functioning.".format(
+            "Average upload is about {}% of the configured ceiling, and recent behavior suggests WAN headroom is fragile even though playback is currently functioning.".format(
                 _safe_label(upload_percent, "0")
             )
         )
     elif upload_percent >= 50:
         analysis.append(
-            "Average upload is at about {}% of the configured ceiling: meaningful WAN load, but not yet a hard saturation event.".format(
+            "Average upload is about {}% of the configured ceiling: meaningful WAN load, but not yet a hard saturation event.".format(
                 _safe_label(upload_percent, "0")
             )
         )
@@ -558,17 +854,17 @@ def _operator_resource_analysis(state: Dict[str, Any]) -> List[str]:
         )
     else:
         analysis.append(
-            "Average upload is at about {}% of the configured ceiling: real background load, but still below the range where delivery should become fragile.".format(
+            "Average upload is about {}% of the configured ceiling: real background load, but still below the range where delivery should become fragile.".format(
                 _safe_label(upload_percent, "0")
             )
         )
 
     if float(system.get("host_ram_percent") or 0) < 85:
-        analysis.append("RAM is at {}%, which is well below pressure territory for this workload.".format(_safe_label(system.get("host_ram_percent"), "0")))
+        analysis.append("RAM is at {}%, well below pressure territory for this workload.".format(_safe_label(system.get("host_ram_percent"), "0")))
     if float(system.get("iowait_percent") or 0) < 8:
         analysis.append("Disk I/O wait is {}%, so storage does not look like a contributing constraint.".format(_safe_label(system.get("iowait_percent"), "0")))
     if playback_quality.get("recurrence_risk_label") in {"Guarded", "High"}:
-        analysis.append("CPU, RAM, and disk do not look like the limiting subsystems; recent delivery fragility is better explained by WAN headroom than by compute pressure.")
+        analysis.append("CPU, RAM, and disk do not look limiting; recent fragility is better explained by WAN headroom.")
     elif not facts.get("sustained_upload_saturation") and not facts.get("sustained_upload_high") and upload_percent < 80:
         analysis.append("Because upload is not near saturation, the network path does not currently look like the limiting subsystem.")
     return analysis[:5]
@@ -677,7 +973,7 @@ def _operator_session_reasoning(state: Dict[str, Any]) -> List[str]:
 
     if healthy:
         lines.append(
-            "Because {} other session(s) are direct playing normally at the same time, the issue is more consistent with client compatibility than server-wide resource strain.".format(
+            "Because {} other session(s) are direct playing normally, the issue is more consistent with client compatibility than server-wide strain.".format(
                 len(healthy)
             )
         )
@@ -707,7 +1003,7 @@ def _operator_failure_paths(state: Dict[str, Any]) -> List[str]:
         candidates.append(
             (
                 6 if dominant == "upload" or playback_quality.get("recurrence_risk_label") in {"Guarded", "High"} else (4 if upload_percent >= 85 else 3 if upload_percent >= 65 else 2),
-                "If upload rises materially above the current {}% level or the same burst pattern returns, delivery throughput would likely fail before CPU does and buffering would appear first.".format(
+                "If upload rises materially above the current {}% level or the same burst pattern returns, delivery throughput would likely fail before CPU and buffering would appear first.".format(
                     _safe_label(upload_percent, "0")
                 ),
             )
@@ -716,21 +1012,21 @@ def _operator_failure_paths(state: Dict[str, Any]) -> List[str]:
         candidates.append(
             (
                 5 if dominant == "host_pressure" else (4 if transcode_count > 1 or float(system.get("plex_cpu_host_percent") or 0) >= 35 else 2),
-                "If more sessions shift from direct play to transcode, Plex CPU would be the next subsystem to tighten and transcode delivery would degrade before RAM becomes the limiter.",
+                "If more sessions shift from direct play to transcode, Plex CPU would tighten next and transcode delivery would degrade before RAM becomes the limiter.",
             )
         )
     if facts.get("buffering_session_count", 0) > 0:
         candidates.append(
             (
                 5 if dominant == "buffering_confirmed" else 3,
-                "If buffering persists or spreads to additional sessions, the issue would stop being a localized compatibility problem and become a broader playback degradation event.",
+                "If buffering persists or spreads to additional sessions, the issue would stop looking localized and become broader playback degradation.",
             )
         )
     if facts.get("healthy_playing_session_count", 0) > 0:
         candidates.append(
             (
                 2,
-                "If the issue broadens beyond the current client while healthy direct-play sessions disappear, the scope would be widening from compatibility friction into a broader service problem.",
+                "If healthy direct-play sessions disappear while the issue broadens, scope would be widening from compatibility friction into a broader service problem.",
             )
         )
     if float(system.get("iowait_percent") or 0) >= 8:
@@ -769,7 +1065,7 @@ def _operator_contextual_checks(state: Dict[str, Any]) -> List[Dict[str, str]]:
             {
                 "hypothesis": "Transcode scaling is the next likely systems constraint.",
                 "signal": "Inspect Plex CPU while additional transcodes start or bitrate demand rises.",
-                "result": "A clear CPU rise with new transcodes confirms compute sensitivity; flat CPU weakens that hypothesis.",
+                "result": "A clear CPU rise with new transcodes confirms compute sensitivity; flat CPU weakens it.",
             }
         )
     if any(_as_dict(sf).get("audio_decision") == "transcode" for sf in sessions):
@@ -900,12 +1196,65 @@ def _display_operator_view(state: Dict[str, Any]) -> Dict[str, Any]:
     state_change = _as_dict(state.get("state_change"))
     issue_metadata = _as_dict(state.get("issue_metadata"))
     playback_quality = _as_dict(_as_dict(state.get("manager_summary")).get("playback_quality"))
+    facts = _as_dict(state.get("facts"))
+    system = _as_dict(state.get("system"))
+    plex = _as_dict(state.get("plex"))
+    trend_summary = _operator_trend_summary(history_summary, facts, playback_quality, diagnosis_presentation)
     severity_raw = _safe_label(diagnosis_presentation.get("severity"), "info")
     confidence_label = _safe_label(diagnosis_presentation.get("confidence"), "low")
     observational_mode = _operator_is_observational_mode(state)
     session_reasoning = _operator_session_reasoning(state)
     failure_paths = _operator_failure_paths(state)
     verification_steps = _operator_contextual_checks(state)
+    upload_limit = float(UPLOAD_LIMIT_MBPS or 0)
+    total_upload = float(system.get("total_upload_mbps") or 0)
+    plex_upload = float(system.get("plex_upload_mbps") or 0)
+    delivery_capacity_percent = (total_upload / upload_limit) * 100 if upload_limit > 0 else 0.0
+    plex_share_percent = (plex_upload / upload_limit) * 100 if upload_limit > 0 else 0.0
+    pressure = {
+        "mild_pressure": any(
+            [
+                float(system.get("host_cpu_percent") or 0) >= 60,
+                float(system.get("host_ram_percent") or 0) >= 85,
+                float(system.get("iowait_percent") or 0) >= 8,
+                float(system.get("plex_cpu_host_percent") or 0) >= 35,
+            ]
+        ),
+        "severe_pressure": any(
+            [
+                float(system.get("host_cpu_percent") or 0) >= 85,
+                float(system.get("host_ram_percent") or 0) >= 92,
+                float(system.get("iowait_percent") or 0) >= 20,
+                float(system.get("plex_cpu_host_percent") or 0) >= 60,
+                facts.get("sustained_upload_high", False),
+            ]
+        ),
+    }
+    recent_constraints_present = bool(
+        facts.get("buffering_detected")
+        or facts.get("sustained_upload_saturation")
+        or facts.get("sustained_upload_high")
+        or pressure["mild_pressure"]
+        or pressure["severe_pressure"]
+        or playback_quality.get("recent_window_active")
+        or _safe_label(playback_quality.get("recurrence_risk_label"), "Low") in {"Guarded", "High", "Watch"}
+    )
+
+    # Operator should describe Plex delivery margin first, with WAN usage as the lead summary metric.
+    if delivery_capacity_percent < 25:
+        network_impact_label = "Low"
+    elif delivery_capacity_percent < 55:
+        network_impact_label = "Moderate"
+    elif delivery_capacity_percent < 80:
+        network_impact_label = "Elevated"
+    else:
+        network_impact_label = "High"
+
+    network_impact_summary = "{} ({}% of upload capacity; Plex using {}%)".format(
+        network_impact_label,
+        int(round(delivery_capacity_percent)),
+        int(round(plex_share_percent)),
+    )
 
     return {
         "severity_label": _safe_label(diagnosis_presentation.get("severity_display_label"), severity_display_label(severity_raw)),
@@ -913,14 +1262,14 @@ def _display_operator_view(state: Dict[str, Any]) -> Dict[str, Any]:
         "scope_label": _safe_label(diagnosis_presentation.get("scope"), "unknown"),
         "confidence_label": confidence_label,
         "confidence_note": _operator_confidence_note(state),
-        "impact_score_label": "{}/100".format(_safe_label(issue_metadata.get("impact_score"), "0")),
-        "impact_level_label": _safe_label(issue_metadata.get("impact_label"), "Minimal"),
-        "capacity_headroom_label": _safe_label(playback_quality.get("headroom_label"), issue_metadata.get("capacity_headroom") or "Comfortable"),
+        "network_impact_label": network_impact_summary,
+        "network_impact_level_label": network_impact_label,
+        "delivery_headroom_label": _safe_label(playback_quality.get("headroom_label"), issue_metadata.get("capacity_headroom") or "Comfortable"),
         "dominant_impact_factor": _safe_label(issue_metadata.get("dominant_impact_factor"), "none"),
         "impact_driver_summary": _safe_label(issue_metadata.get("impact_driver_summary"), "No meaningful playback strain is currently confirmed."),
         "recurrence_hint": _operator_recurrence_hint(state),
         "takeaway": _operator_takeaway(state),
-        "capacity_headroom_summary": _safe_label(
+        "delivery_headroom_summary": _safe_label(
             playback_quality.get("headroom_summary"),
             issue_metadata.get("capacity_headroom_summary") or "Current telemetry suggests the system is comfortably handling playback.",
         ),
@@ -962,11 +1311,19 @@ def _display_operator_view(state: Dict[str, Any]) -> Dict[str, Any]:
         "warning_or_higher_last_24h": _safe_label(history_summary.get("warning_or_higher_last_24h"), "0"),
         "top_diagnosis_last_24h": _safe_label(history_summary.get("top_diagnosis_last_24h"), "none"),
         "top_affected_client_last_24h": _safe_label(history_summary.get("top_affected_client_last_24h"), "none"),
+        "trend_insight": _safe_label(trend_summary.get("insight"), "No meaningful recent trend is standing out."),
+        "trend_support": _safe_label(trend_summary.get("support"), ""),
+        "trend_pattern": _safe_label(trend_summary.get("pattern"), "quiet recent history"),
+        "trend_associated_client": _safe_label(trend_summary.get("associated_client"), "none"),
+        "trend_common_trigger": _safe_label(trend_summary.get("common_trigger"), "none"),
+        "trend_direction": _safe_label(trend_summary.get("direction"), "stable overall"),
         "observational_mode": observational_mode,
         "system_mechanics_summary": _operator_transcode_mechanics(state),
         "resource_pressure_analysis": _operator_resource_analysis(state),
         "system_behavior": _operator_system_behavior(state),
         "constraints_ruled_out_summary": _operator_constraints_ruled_out(state),
+        "recent_constraints_present": recent_constraints_present,
+        "healthy_observational_summary": "No immediate failure risks or diagnostic follow-up steps are required under the current load.",
         "session_level_reasoning": session_reasoning,
         "session_level_reasoning_empty_label": "No cross-session divergence observed.",
         "failure_path_analysis": failure_paths,
@@ -1098,6 +1455,30 @@ def _clear_ask_history(session_id: str) -> None:
     _ASK_CONVERSATIONS.pop(session_id, None)
 
 
+def _get_ask_page_state(session_id: str, page_context: str) -> Dict[str, Any]:
+    return dict(_ASK_PAGE_STATE.get(session_id, {}).get(_normalize_page_context(page_context), {}))
+
+
+def _set_ask_page_state(session_id: str, page_context: str, page_state: Dict[str, Any]) -> None:
+    normalized_page_context = _normalize_page_context(page_context)
+    by_page = _ASK_PAGE_STATE.get(session_id, {})
+    by_page[normalized_page_context] = dict(page_state)
+    _ASK_PAGE_STATE[session_id] = by_page
+
+
+def _clear_ask_page_state(session_id: str, page_context: Optional[str] = None) -> None:
+    if page_context is None:
+        _ASK_PAGE_STATE.pop(session_id, None)
+        return
+    normalized_page_context = _normalize_page_context(page_context)
+    by_page = _ASK_PAGE_STATE.get(session_id, {})
+    by_page.pop(normalized_page_context, None)
+    if by_page:
+        _ASK_PAGE_STATE[session_id] = by_page
+    else:
+        _ASK_PAGE_STATE.pop(session_id, None)
+
+
 def _normalize_page_context(page_context: str) -> str:
     normalized = (page_context or "").strip().lower()
     if normalized in PAGE_CONFIG:
@@ -1152,18 +1533,11 @@ def build_web_context(
     state = snapshot["state"] or {}
     current_alerts = state.get("alerts", [])
     recent_history = load_recent_history(limit=50)
-    recent_alert_history = load_recent_alert_history(limit=50)
-    display_history = [build_history_display_event(_as_dict(event)) for event in reversed(recent_history)]
+    recent_alert_history = load_recent_alert_history(limit=ALERT_RENDER_LIMIT)
+    display_history = [build_history_display_event(_as_dict(event)) for event in reversed(recent_history)][:HISTORY_RENDER_LIMIT]
     display_sessions = _display_sessions(_as_list(_as_dict(state.get("plex")).get("sessions")))
     display_current_alerts = _display_alerts(_as_list(current_alerts))
-    display_recent_alerts = _display_alerts(list(reversed(recent_alert_history)))
-    dashboard_view = _display_dashboard_view(state)
-    manager_view = _display_manager_view(state)
-    operator_view = _display_operator_view(state)
-    display_history = [build_history_display_event(_as_dict(event)) for event in reversed(recent_history)]
-    display_sessions = _display_sessions(_as_list(_as_dict(state.get("plex")).get("sessions")))
-    display_current_alerts = _display_alerts(_as_list(current_alerts))
-    display_recent_alerts = _display_alerts(list(reversed(recent_alert_history)))
+    display_recent_alerts = _display_alerts(list(reversed(recent_alert_history)))[:ALERT_RENDER_LIMIT]
     dashboard_view = _display_dashboard_view(state)
     manager_view = _display_manager_view(state)
     operator_view = _display_operator_view(state)
@@ -1192,17 +1566,16 @@ def build_web_context(
         "manager_view": manager_view,
         "operator_view": operator_view,
         "recent_history": display_history,
+        "recent_history_render_limit": HISTORY_RENDER_LIMIT,
         "recent_alert_history": display_recent_alerts,
-        "alerts_display": display_current_alerts,
-        "sessions_display": display_sessions,
-        "session_rows": display_sessions,
-        "recent_alert_history": display_recent_alerts,
+        "recent_alert_history_render_limit": ALERT_RENDER_LIMIT,
         "alerts_display": display_current_alerts,
         "sessions_display": display_sessions,
         "session_rows": display_sessions,
         "sessions": state.get("plex", {}).get("sessions", []),
         "ask_question": ask_question,
         "ask_answer": ask_answer,
+        "ask_answer_sections": _render_ask_answer_sections(ask_answer),
         "ask_error": ask_error,
         "ask_mode": effective_ask_mode,
         "ask_mode_locked": not bool(page_config["allow_mode_toggle"]),
@@ -1245,6 +1618,19 @@ def render_page(
     session_id = _get_or_create_ask_session_id(request)
     normalized_page_context = _normalize_page_context(page_context or _page_context_from_path(request.url.path))
     page_config = _page_config(normalized_page_context)
+    persisted_ask_state = _get_ask_page_state(session_id, normalized_page_context)
+
+    if ask_answer is None and ask_error is None and not ask_question and persisted_ask_state:
+        ask_question = str(persisted_ask_state.get("ask_question", "") or "")
+        ask_answer = persisted_ask_state.get("ask_answer")
+        ask_error = persisted_ask_state.get("ask_error")
+        ask_mode = str(persisted_ask_state.get("ask_mode", ask_mode) or ask_mode)
+        ask_intent = persisted_ask_state.get("ask_intent")
+        ask_follow_ups = list(persisted_ask_state.get("ask_follow_ups", []) or [])
+        ask_source = str(persisted_ask_state.get("ask_source", ask_source or "") or "")
+        ask_section = str(persisted_ask_state.get("ask_section", ask_section or "") or "")
+        ask_prompt_key = str(persisted_ask_state.get("ask_prompt_key", ask_prompt_key or "") or "")
+
     context = build_web_context(
         response_mode=response_mode,
         snapshot=snapshot,
@@ -1267,9 +1653,10 @@ def render_page(
             "page_title": page_title,
             "active_path": page_config["path"],
             "static_asset_version": STATIC_ASSET_VERSION,
-            "page_context": normalized_page_context,
-            "scroll_target": scroll_target or "",
-        }
+        "page_context": normalized_page_context,
+        "scroll_target": scroll_target or "",
+        "ask_active": bool(ask_answer or ask_error),
+    }
     )
     response = templates.TemplateResponse(
         request=request,
@@ -1332,25 +1719,25 @@ async def ask(request: Request) -> HTMLResponse:
         except Exception:
             ask_error = "Plex Assistant could not answer that question from the current snapshot right now."
 
-    return render_page(
-        request,
-        page_config["template"],
-        page_config["title"],
-        response_mode=page_config["response_mode"],
-        snapshot=snapshot,
-        page_context=page_context,
-        ask_question=question,
-        ask_answer=ask_answer,
-        ask_error=ask_error,
-        ask_mode=ask_mode,
-        ask_intent=ask_intent,
-        ask_follow_ups=ask_follow_ups,
-        ask_history=ask_history,
-        ask_source=ask_source,
-        ask_section=ask_section,
-        ask_prompt_key=ask_prompt_key,
-        scroll_target="ask-plex",
+    _set_ask_page_state(
+        session_id,
+        page_context,
+        {
+            "ask_question": question,
+            "ask_answer": ask_answer,
+            "ask_error": ask_error,
+            "ask_mode": ask_mode,
+            "ask_intent": ask_intent,
+            "ask_follow_ups": ask_follow_ups,
+            "ask_source": ask_source,
+            "ask_section": ask_section,
+            "ask_prompt_key": ask_prompt_key,
+        },
     )
+    response = RedirectResponse(url=page_config["path"], status_code=303)
+    if request.cookies.get(ASK_SESSION_COOKIE) != session_id:
+        response.set_cookie(ASK_SESSION_COOKIE, session_id, max_age=60 * 60 * 24 * 30, samesite="lax")
+    return response
 
 
 @app.post("/ask/clear", response_class=HTMLResponse)
@@ -1360,19 +1747,27 @@ async def clear_ask_history(request: Request) -> HTMLResponse:
     page_config = _page_config(page_context)
     session_id = _get_or_create_ask_session_id(request)
     _clear_ask_history(session_id)
+    _clear_ask_page_state(session_id, page_context)
     snapshot = _get_fresh_or_cached_snapshot(prefer_cache=True)
-    return render_page(
-        request,
-        page_config["template"],
-        page_config["title"],
-        response_mode=page_config["response_mode"],
-        snapshot=snapshot,
-        page_context=page_context,
-        ask_error="Conversation cleared. New questions will start fresh from the current state.",
-        ask_mode=_resolve_ask_mode(page_context, page_config["response_mode"]),
-        ask_history=[],
-        scroll_target="ask-plex",
+    _set_ask_page_state(
+        session_id,
+        page_context,
+        {
+            "ask_question": "",
+            "ask_answer": None,
+            "ask_error": "Conversation cleared. New questions will start fresh from the current state.",
+            "ask_mode": _resolve_ask_mode(page_context, page_config["response_mode"]),
+            "ask_intent": None,
+            "ask_follow_ups": [],
+            "ask_source": "panel",
+            "ask_section": "copilot_panel",
+            "ask_prompt_key": "clear",
+        },
     )
+    response = RedirectResponse(url=page_config["path"], status_code=303)
+    if request.cookies.get(ASK_SESSION_COOKIE) != session_id:
+        response.set_cookie(ASK_SESSION_COOKIE, session_id, max_age=60 * 60 * 24 * 30, samesite="lax")
+    return response
 
 
 @app.get("/operator", response_class=HTMLResponse)

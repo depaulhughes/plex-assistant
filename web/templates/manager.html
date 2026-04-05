@@ -9,7 +9,7 @@
           <h2>Manager Summary</h2>
           <p class="secondary-text">{{ manager_view.executive_conclusion }}</p>
         </div>
-        <button type="button" class="inline-ask" data-question="Give me the decision-level takeaway from this page." data-submit="true" data-source="inline_card" data-section="manager_summary" data-prompt-key="manager_summary">Ask Plex</button>
+        <button type="button" class="inline-ask" data-question="Give me the decision-level takeaway from this page." data-submit="true" data-source="inline_card" data-section="manager_summary" data-prompt-key="manager_summary">Ask Plex AI</button>
       </div>
       <div class="manager-summary-grid">
         <div class="manager-summary-item">
@@ -39,7 +39,7 @@
       <article class="card">
         <div class="card-title-row">
           <h2>Current Situation</h2>
-          <button type="button" class="inline-ask" data-question="Summarize the current situation, delivery risk, and what it means for me." data-submit="true" data-source="inline_card" data-section="manager_summary" data-prompt-key="manager_current_situation">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Summarize the current situation, delivery risk, and what it means for me." data-submit="true" data-source="inline_card" data-section="manager_summary" data-prompt-key="manager_current_situation">Ask Plex AI</button>
         </div>
         <p><strong>Impact:</strong> {{ manager_view.impact_summary|default("No impact summary available.") }}</p>
         <p><strong>Primary diagnosis:</strong> {{ manager_view.diagnosis_label|default("unknown") }}</p>
@@ -60,7 +60,7 @@
       <article class="card">
         <div class="card-title-row">
           <h2>Recommendation Ladder</h2>
-          <button type="button" class="inline-ask" data-question="Why is this the recommended action level?" data-submit="true" data-source="inline_card" data-section="recommendation_ladder" data-prompt-key="manager_recommendation_ladder">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="Why is this the recommended action level?" data-submit="true" data-source="inline_card" data-section="recommendation_ladder" data-prompt-key="manager_recommendation_ladder">Ask Plex AI</button>
         </div>
         <p><strong>Bucket:</strong> {{ manager_view.recommendation_bucket }}</p>
         <p><strong>Why:</strong> {{ manager_view.recommendation_reason }}</p>
@@ -86,7 +86,7 @@
       <article class="card">
         <div class="card-title-row">
           <h2>Escalation Triggers</h2>
-          <button type="button" class="inline-ask" data-question="What specific conditions would justify escalation?" data-submit="true" data-source="inline_card" data-section="escalation_triggers" data-prompt-key="manager_escalation_triggers">Ask Plex</button>
+          <button type="button" class="inline-ask" data-question="What specific conditions would justify escalation?" data-submit="true" data-source="inline_card" data-section="escalation_triggers" data-prompt-key="manager_escalation_triggers">Ask Plex AI</button>
         </div>
         {% if manager_view.escalation_triggers %}
         <ul class="stack">
@@ -129,6 +129,27 @@
     </section>
   </div>
 
-  {% include "_copilot_panel.html" %}
+  <div class="copilot-rail">
+    <article class="card home-alerts-card">
+      <div class="card-title-row">
+        <h2>Active Alerts</h2>
+      </div>
+      {% if alerts %}
+      <ul class="stack">
+        {% for alert in alerts %}
+        <li>
+          <span class="badge severity-{{ alert.severity }}">{{ alert.severity }}</span>
+          <strong>{{ alert.title }}</strong>
+          <div class="muted">{{ alert.message }}</div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">No active alerts.</p>
+      {% endif %}
+    </article>
+
+    {% include "_copilot_panel.html" %}
+  </div>
 </section>
 {% endblock %}

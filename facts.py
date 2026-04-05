@@ -42,6 +42,9 @@ def get_recent_upload_analysis(window_seconds: int = 60) -> dict:
     variance = sum((x - avg_upload) ** 2 for x in samples) / len(samples)
     std_dev = variance ** 0.5
     max_upload = max(samples)
+    peak_index = samples.index(max_upload)
+    tail_window = samples[-3:] if len(samples) >= 3 else samples
+    tail_avg = sum(tail_window) / len(tail_window) if tail_window else 0.0
 
     above_warn_count = sum(1 for x in samples if x > UPLOAD_WARN_MBPS)
     above_peak_count = sum(1 for x in samples if x > UPLOAD_PEAK_MBPS)
@@ -59,11 +62,29 @@ def get_recent_upload_analysis(window_seconds: int = 60) -> dict:
     burst_upload_saturation = max_upload >= saturation_threshold and not sustained_upload_saturation
     sustained_upload_high = sustained_upload_saturation or above_warn_count >= max(4, (len(samples) * 2) // 3)
     brief_upload_spike = max_upload > UPLOAD_WARN_MBPS and not sustained_upload_high
+    early_peak_window = max(2, len(samples) // 4)
+    early_peak = peak_index <= early_peak_window
+    settled_after_spike = (
+        tail_avg < UPLOAD_WARN_MBPS
+        and tail_avg <= max_upload * 0.72
+        and avg_upload <= max_upload * 0.82
+    )
+    # Treat an early burst that settles quickly as normal buffer-fill behavior,
+    # not the same thing as sustained WAN pressure.
+    startup_spike_candidate = (
+        (burst_upload_saturation or brief_upload_spike)
+        and early_peak
+        and settled_after_spike
+        and max_consecutive_saturation <= 2
+        and above_warn_count <= max(3, len(samples) // 3)
+    )
 
     return {
         "samples": samples,
         "avg_upload_mbps": round(avg_upload, 2),
         "max_upload_mbps": round(max_upload, 2),
+        "tail_avg_upload_mbps": round(tail_avg, 2),
+        "peak_sample_index": peak_index,
         "above_warn_count": above_warn_count,
         "above_peak_count": above_peak_count,
         "consecutive_saturation_count": max_consecutive_saturation,
@@ -71,6 +92,7 @@ def get_recent_upload_analysis(window_seconds: int = 60) -> dict:
         "burst_upload_saturation": burst_upload_saturation,
         "sustained_upload_high": sustained_upload_high,
         "brief_upload_spike": brief_upload_spike,
+        "startup_spike_candidate": startup_spike_candidate,
         "upload_std_dev": round(std_dev, 2),
         "upload_is_stable": std_dev < STABLE_STDDEV_MBPS,
         "upload_is_bursty": std_dev > BURSTY_STDDEV_MBPS,
@@ -110,6 +132,7 @@ def derive_facts(state: dict) -> dict:
     facts["burst_upload_saturation"] = recent_upload.get("burst_upload_saturation", False)
     facts["sustained_upload_high"] = recent_upload.get("sustained_upload_high", False)
     facts["brief_upload_spike"] = recent_upload.get("brief_upload_spike", False)
+    facts["startup_spike_candidate"] = recent_upload.get("startup_spike_candidate", False)
     facts["upload_std_dev"] = recent_upload.get("upload_std_dev", 0)
     facts["upload_is_stable"] = recent_upload.get("upload_is_stable", False)
     facts["upload_is_bursty"] = recent_upload.get("upload_is_bursty", False)
@@ -363,5 +386,18 @@ def derive_facts(state: dict) -> dict:
         and facts.get("upload_is_stable")
         and facts.get("upload_mostly_plex")
     )
+
+    facts["startup_spike_expected"] = (
+        facts.get("startup_spike_candidate", False)
+        and facts.get("has_sessions", False)
+        and not facts.get("buffering_detected", False)
+        and not facts.get("sustained_upload_high", False)
+        and not facts.get("sustained_upload_saturation", False)
+        and plex.get("transcodes", 0) == 0
+        and system.get("host_cpu_percent", 0) < 60
+        and system.get("host_ram_percent", 0) < 85
+        and system.get("iowait_percent", 0) < 8
+    )
+    facts["startup_buffer_fill"] = facts["startup_spike_expected"]
 
     return facts

@@ -261,6 +261,7 @@ body {
 
 .page-shell {
   padding: 1.3rem;
+  padding-bottom: calc(1.3rem + env(safe-area-inset-bottom));
   display: grid;
   gap: 0.95rem;
   width: 100%;
@@ -297,6 +298,22 @@ body {
   top: 1rem;
   display: grid;
   gap: 0.9rem;
+}
+
+/* iPhone Safari keyboard resizing is more reliable when the Ask rail stays in normal flow. */
+@media (hover: none) and (pointer: coarse) {
+  .copilot-card {
+    position: static;
+    top: auto;
+  }
+
+  .copilot-panel,
+  .copilot-card,
+  .ask-card,
+  .ask-response {
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 .copilot-header,
@@ -377,6 +394,13 @@ body {
 
 .home-alerts-card,
 .home-sessions-card {
+  min-width: 0;
+}
+
+.grid > *,
+.grid-2 > *,
+.grid-3 > *,
+.grid-4 > * {
   min-width: 0;
 }
 
@@ -488,6 +512,30 @@ body {
   line-height: 1.45;
 }
 
+.session-summary-copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  width: 100%;
+  overflow: visible;
+}
+
+.session-summary-copy p {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.compact-device-line {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  margin-bottom: 0;
+}
+
 .badges {
   display: flex;
   flex-wrap: wrap;
@@ -502,6 +550,24 @@ body {
   border: 1px solid var(--border);
   font-weight: 600;
   white-space: nowrap;
+}
+
+.severity-badge.severity-low {
+  background: rgba(44, 122, 88, 0.14);
+  color: var(--healthy);
+  border-color: rgba(44, 122, 88, 0.22);
+}
+
+.severity-badge.severity-medium {
+  background: rgba(181, 122, 9, 0.14);
+  color: var(--warning);
+  border-color: rgba(181, 122, 9, 0.22);
+}
+
+.severity-badge.severity-high {
+  background: rgba(186, 57, 72, 0.14);
+  color: var(--critical);
+  border-color: rgba(186, 57, 72, 0.22);
 }
 
 .severity-info {
@@ -633,6 +699,11 @@ body {
   font-size: 0.9rem;
   color: var(--accent);
   font-weight: 600;
+  padding: 0.15rem 0 0.1rem 0;
+}
+
+.ask-mobile-loading-pill {
+  display: none;
 }
 
 .mode-toggle {
@@ -663,6 +734,27 @@ body {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  transition: opacity 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.primary-button.is-loading,
+.primary-button:disabled {
+  opacity: 0.92;
+  cursor: progress;
+  filter: saturate(0.82) brightness(0.95);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent), 0 10px 20px rgba(12, 29, 43, 0.12);
+}
+
+.primary-button.is-loading::after {
+  content: "";
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-left: 0.45rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.36);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  animation: ask-spin 0.8s linear infinite;
 }
 
 .secondary-button {
@@ -693,6 +785,7 @@ body {
   border-radius: 14px;
   border: 1px solid var(--ask-response-border);
   background: var(--ask-response-bg);
+  scroll-margin-top: 1rem;
 }
 
 .ask-error {
@@ -714,6 +807,45 @@ body {
   overflow-wrap: anywhere;
   font: inherit;
   line-height: 1.5;
+}
+
+.response-sections {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.response-section {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.response-section + .response-section {
+  padding-top: 0.8rem;
+  border-top: 1px solid color-mix(in srgb, var(--ask-response-border) 85%, transparent);
+}
+
+.response-section-title {
+  font-size: 0.98rem;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--text);
+}
+
+@keyframes ask-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ask-mobile-pill-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .ask-source-note {
@@ -743,6 +875,29 @@ body {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: 12px;
+}
+
+.history-table-wrap {
+  max-height: 54rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.alerts-page-grid {
+  align-items: start;
+}
+
+.alerts-current-card,
+.alerts-history-card {
+  min-width: 0;
+  align-self: start;
+}
+
+.alert-history-wrap {
+  max-height: 42rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.15rem;
 }
 
 table {
@@ -830,6 +985,56 @@ td {
 }
 
 @media (max-width: 768px) {
+  html[data-clear-restore-pending="true"] .topbar,
+  html[data-clear-restore-pending="true"] .page-shell {
+    visibility: hidden;
+  }
+
+  html[data-ask-restore-pending="true"] .topbar,
+  html[data-ask-restore-pending="true"] .page-shell {
+    visibility: hidden;
+  }
+
+  .ask-mobile-loading-pill {
+    position: fixed;
+    top: max(0.9rem, calc(env(safe-area-inset-top) + 0.45rem));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.62rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+    background: color-mix(in srgb, var(--card) 92%, var(--accent-soft));
+    color: var(--text);
+    box-shadow: 0 12px 26px var(--shadow-strong);
+    font-size: 0.88rem;
+    font-weight: 600;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    animation: ask-mobile-pill-in 0.16s ease-out;
+  }
+
+  html[data-ask-restore-pending="true"] .ask-mobile-loading-pill[hidden] {
+    display: inline-flex !important;
+  }
+
+  .ask-mobile-loading-pill[hidden] {
+    display: none;
+  }
+
+  .ask-mobile-loading-spinner {
+    width: 0.82rem;
+    height: 0.82rem;
+    border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top-color: var(--accent);
+    animation: ask-spin 0.8s linear infinite;
+    flex: 0 0 auto;
+  }
+
   .topbar {
     flex-direction: column;
     align-items: stretch;
@@ -882,6 +1087,7 @@ td {
 
   .page-shell {
     padding: 0.78rem;
+    padding-bottom: calc(0.78rem + env(safe-area-inset-bottom));
     gap: 0.7rem;
   }
 
@@ -983,7 +1189,7 @@ td {
   .ask-form textarea {
     min-height: 92px;
     padding: 0.72rem 0.76rem;
-    font-size: 0.92rem;
+    font-size: 16px;
   }
 
   .ask-controls {
@@ -1011,7 +1217,7 @@ td {
     justify-content: center;
     text-align: center;
     padding: 0.56rem 0.9rem;
-    font-size: 0.92rem;
+    font-size: 0.96rem;
   }
 
   .inline-ask,
@@ -1027,6 +1233,14 @@ td {
 
   .table-wrap {
     padding-bottom: 0.15rem;
+  }
+
+  .history-table-wrap {
+    max-height: 58vh;
+  }
+
+  .alert-history-wrap {
+    max-height: 58vh;
   }
 
   .sessions-table {
@@ -1118,6 +1332,7 @@ td {
 
   .page-shell {
     padding: 0.62rem;
+    padding-bottom: calc(0.62rem + env(safe-area-inset-bottom));
   }
 
   .copilot-layout {
